@@ -13,71 +13,65 @@ echo "Health Tracker Bot - Installer"
 echo "Install directory: $INSTALL_DIR"
 echo ""
 
-# If current dir is already a git repo (e.g. cloned manually), use it
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-  echo "Using existing repo at: $PROJECT_ROOT"
-  cd "$PROJECT_ROOT"
-else
-  # Clone into INSTALL_DIR
-  if [ -d "$INSTALL_DIR" ]; then
-    echo "Directory exists: $INSTALL_DIR"
-    if [ -d "$INSTALL_DIR/.git" ]; then
-      PROJECT_ROOT="$INSTALL_DIR"
-      cd "$PROJECT_ROOT"
-      git pull || true
-    else
-      echo "Not a git repo. Clone into a new folder? (y/n)"
-      read -r ans
-      if [ "$ans" != "y" ] && [ "$ans" != "Y" ]; then
-        echo "Aborted."
-        exit 1
-      fi
-      git clone "$REPO_URL" "$INSTALL_DIR.clone"
-      rm -rf "$INSTALL_DIR"
-      mv "$INSTALL_DIR.clone" "$INSTALL_DIR"
-      PROJECT_ROOT="$INSTALL_DIR"
-      cd "$PROJECT_ROOT"
-    fi
-  else
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+# When piped via `curl | bash`, bash reads the script from the pipe and keeps
+# executing that in-memory copy even after `git pull` updates files on disk.
+# Fix: clone/pull first, then `exec` the fresh on-disk copy so the rest of
+# the installation always runs from the latest code.
+# _ACESO_FROM_DISK is exported before exec to prevent an infinite loop.
+if [ -z "${_ACESO_FROM_DISK:-}" ]; then
+  if git -C "$INSTALL_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "Updating existing installation..."
+    git -C "$INSTALL_DIR" pull || true
+  elif [ -d "$INSTALL_DIR" ]; then
+    echo "Directory '$INSTALL_DIR' exists but is not a git repo. Re-cloning..."
+    rm -rf "$INSTALL_DIR"
     git clone "$REPO_URL" "$INSTALL_DIR"
-    PROJECT_ROOT="$INSTALL_DIR"
-    cd "$PROJECT_ROOT"
+  else
+    echo "Cloning repository..."
+    git clone "$REPO_URL" "$INSTALL_DIR"
   fi
+  export _ACESO_FROM_DISK=1
+  exec bash "$INSTALL_DIR/install.sh" "$INSTALL_DIR"
 fi
 
-# On Debian/Ubuntu, venv requires python3.X-venv (ensurepip). Install if missing and retry.
+# ── Everything below runs from the on-disk copy ──────────────────────────────
+cd "$INSTALL_DIR"
+
+# Helper: create venv
 try_venv() {
   python3 -m venv venv
 }
+
+# Helper: install python3.X-venv on Debian/Ubuntu when ensurepip is missing
 install_venv_package() {
   PY_VER="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3")"
   if [ -f /etc/debian_version ] || grep -qEi 'debian|ubuntu' /etc/os-release 2>/dev/null; then
-    echo "python3-venv (ensurepip) is missing. On Debian/Ubuntu install: python${PY_VER}-venv"
+    echo "python3-venv (ensurepip) is missing. Required package: python${PY_VER}-venv"
     if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" = "0" ]; then
       echo "Installing python${PY_VER}-venv (running as root)..."
-      apt-get update -qq && apt-get install -y "python${PY_VER}-venv" || true
+      apt-get update -qq && apt-get install -y "python${PY_VER}-venv"
     else
       echo "Run: sudo apt-get update && sudo apt-get install -y python${PY_VER}-venv"
       exit 1
     fi
   else
-    echo "Please install Python venv/ensurepip for your distribution and run this script again."
+    echo "Please install Python venv/ensurepip for your distribution and re-run."
     exit 1
   fi
 }
 
-# Virtual environment (create if missing or broken, e.g. from a previous failed run)
+# Create venv if missing or broken (venv/bin/activate absent = broken)
 if [ ! -f "venv/bin/activate" ]; then
   [ -d "venv" ] && rm -rf venv
   echo "Creating virtual environment..."
   if ! try_venv; then
     install_venv_package
-    rm -rf venv  # remove partial dir left by the failed first attempt
+    rm -rf venv
     try_venv
   fi
 fi
-# Activate for this script (and child processes)
+
 # shellcheck source=/dev/null
 source venv/bin/activate
 

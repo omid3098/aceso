@@ -204,3 +204,57 @@ def test_get_recent_logs_returns_sqlite_rows():
     rows = db.get_recent_logs(1)
     assert len(rows) == 1
     assert isinstance(rows[0], sqlite3.Row)
+
+
+# ── get_recent_logs per-user filtering ────────────────────────────────────────
+
+def test_get_recent_logs_filters_by_user_id():
+    db.init_db()
+    db.insert_log(user_id=10, back_pain=3)
+    db.insert_log(user_id=20, back_pain=7)
+    db.insert_log(user_id=10, back_pain=5)
+
+    rows = db.get_recent_logs(50, user_id=10)
+    assert len(rows) == 2
+    assert all(r["user_id"] == 10 for r in rows)
+
+
+def test_get_recent_logs_without_user_id_returns_all():
+    db.init_db()
+    db.insert_log(user_id=10)
+    db.insert_log(user_id=20)
+    db.insert_log(user_id=30)
+
+    rows = db.get_recent_logs(50)
+    assert len(rows) == 3
+
+
+def test_get_recent_logs_user_id_no_matches():
+    db.init_db()
+    db.insert_log(user_id=10)
+    db.insert_log(user_id=20)
+
+    rows = db.get_recent_logs(50, user_id=999)
+    assert rows == []
+
+
+def test_get_recent_logs_user_id_respects_limit():
+    db.init_db()
+    for _ in range(10):
+        db.insert_log(user_id=10)
+    db.insert_log(user_id=20)
+
+    rows = db.get_recent_logs(3, user_id=10)
+    assert len(rows) == 3
+    assert all(r["user_id"] == 10 for r in rows)
+
+
+def test_get_recent_logs_user_id_newest_first():
+    db.init_db()
+    id1 = db.insert_log(user_id=10, back_pain=1)
+    db.insert_log(user_id=20, back_pain=9)
+    id3 = db.insert_log(user_id=10, back_pain=5)
+
+    rows = db.get_recent_logs(50, user_id=10)
+    assert rows[0]["id"] == id3
+    assert rows[1]["id"] == id1

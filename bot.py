@@ -210,7 +210,7 @@ def handle_cigarette(message: types.Message) -> None:
 def handle_last_log(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
         return
-    logs = database.get_recent_logs(1)
+    logs = database.get_recent_logs(1, user_id=message.from_user.id)
     if not logs:
         bot.send_message(message.chat.id, "هنوز لاگی ثبت نشده.")
         return

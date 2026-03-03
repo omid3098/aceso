@@ -90,12 +90,21 @@ def insert_log(
         return cur.lastrowid
 
 
-def get_recent_logs(limit: int = 50) -> list[sqlite3.Row]:
-    """Return the most recent log rows (newest first)."""
+def get_recent_logs(limit: int = 50, user_id: Optional[int] = None) -> list[sqlite3.Row]:
+    """Return the most recent log rows (newest first).
+
+    If *user_id* is given, only that user's logs are returned.
+    """
     init_db()
     with get_connection() as conn:
-        cur = conn.execute(
-            "SELECT * FROM logs ORDER BY id DESC LIMIT ?",
-            (limit,),
-        )
+        if user_id is not None:
+            cur = conn.execute(
+                "SELECT * FROM logs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                (user_id, limit),
+            )
+        else:
+            cur = conn.execute(
+                "SELECT * FROM logs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
         return list(cur.fetchall())

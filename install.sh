@@ -73,6 +73,7 @@ if [ ! -f "venv/bin/activate" ]; then
   echo "Creating virtual environment..."
   if ! try_venv; then
     install_venv_package
+    rm -rf venv  # remove partial dir left by the failed first attempt
     try_venv
   fi
 fi

@@ -67,8 +67,9 @@ install_venv_package() {
   fi
 }
 
-# Virtual environment
-if [ ! -d "venv" ]; then
+# Virtual environment (create if missing or broken, e.g. from a previous failed run)
+if [ ! -f "venv/bin/activate" ]; then
+  [ -d "venv" ] && rm -rf venv
   echo "Creating virtual environment..."
   if ! try_venv; then
     install_venv_package

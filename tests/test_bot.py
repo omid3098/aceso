@@ -143,8 +143,8 @@ def test_today_str_format(monkeypatch):
 # ── Flow definitions ──────────────────────────────────────────────────────────
 
 def test_flows_defined():
-    assert "noon" in bot.FLOWS
-    assert "night" in bot.FLOWS
+    assert "log" in bot.FLOWS
+    assert "pain_now" in bot.FLOWS
     assert "medication" in bot.FLOWS
     assert "exercise" in bot.FLOWS
     assert "cigarette" in bot.FLOWS
@@ -156,22 +156,45 @@ def test_questions_cover_all_flow_steps():
             assert step in bot.QUESTIONS, f"Missing question for step '{step}' in flow '{flow_name}'"
 
 
+# ── Progress bar ──────────────────────────────────────────────────────────────
+
+def test_progress_bar_first_step():
+    bar = bot._progress_bar("sleep_quality", "log")
+    assert "(1/" in bar
+    assert "▓" in bar
+
+
+def test_progress_bar_middle_step():
+    bar = bot._progress_bar("peace_level", "log")
+    assert "▓" in bar and "░" in bar
+
+
+def test_progress_bar_single_step_flow():
+    bar = bot._progress_bar("cig_count", "cigarette")
+    assert bar == ""
+
+
+def test_progress_bar_unknown_step():
+    bar = bot._progress_bar("nonexistent", "log")
+    assert bar == ""
+
+
 # ── State management ─────────────────────────────────────────────────────────
 
 def test_clear_state(isolated_db):
-    bot.user_states[1] = {"flow": "noon", "step": "back_pain", "data": {}}
-    db.save_session(1, "noon", "back_pain", {})
+    bot.user_states[1] = {"flow": "log", "step": "back_pain", "data": {}}
+    db.save_session(1, "log", "back_pain", {})
     bot._clear_state(1)
     assert 1 not in bot.user_states
     assert db.load_session(1) is None
 
 
 def test_persist_state(isolated_db):
-    bot.user_states[1] = {"flow": "noon", "step": "sleep_quality", "data": {"x": 1}}
+    bot.user_states[1] = {"flow": "log", "step": "sleep_quality", "data": {"x": 1}}
     bot._persist_state(1)
     sess = db.load_session(1)
     assert sess is not None
-    assert sess["flow"] == "noon"
+    assert sess["flow"] == "log"
     assert sess["step"] == "sleep_quality"
 
 
@@ -181,11 +204,11 @@ def test_persist_state_no_state():
 
 def test_restore_sessions(isolated_db, monkeypatch):
     monkeypatch.setattr(bot, "ADMIN_IDS", [1, 2])
-    db.save_session(1, "night", "water_amount", {"val": 5})
+    db.save_session(1, "log", "water_amount", {"val": 5})
     bot.user_states.clear()
     bot._restore_sessions()
     assert 1 in bot.user_states
-    assert bot.user_states[1]["flow"] == "night"
+    assert bot.user_states[1]["flow"] == "log"
     assert 2 not in bot.user_states
 
 
@@ -193,22 +216,43 @@ def test_restore_sessions(isolated_db, monkeypatch):
 
 def test_advance_flow_progresses_step(isolated_db, monkeypatch):
     monkeypatch.setattr(bot.bot, "send_message", MagicMock())
-    bot.user_states[1] = {"flow": "noon", "step": "sleep_quality", "data": {}}
+    bot.user_states[1] = {"flow": "log", "step": "sleep_quality", "data": {}}
     bot.advance_flow(1, 1, 7)
-    assert bot.user_states[1]["step"] == "back_pain"
+    assert bot.user_states[1]["step"] == "sleep_hours"
     assert bot.user_states[1]["data"]["sleep_quality"] == 7
 
 
-def test_advance_flow_completes_noon(isolated_db, monkeypatch):
+def test_advance_flow_completes_log(isolated_db, monkeypatch):
     monkeypatch.setattr(bot.bot, "send_message", MagicMock())
-    steps = bot.FLOWS["noon"]
-    bot.user_states[1] = {"flow": "noon", "step": steps[0], "data": {}}
+    steps = bot.FLOWS["log"]
+    bot.user_states[1] = {"flow": "log", "step": steps[0], "data": {}}
     for i, step in enumerate(steps):
         bot.user_states[1]["step"] = step
         bot.advance_flow(1, 1, i + 1)
+    assert bot.user_states[1]["step"] == "_confirm"
+    bot._finish_flow(1, 1, bot.user_states[1]["data"], "log")
+    bot._clear_state(1)
     assert 1 not in bot.user_states
     logs = db.get_recent_logs(1, user_id=1)
     assert len(logs) == 1
+
+
+def test_advance_flow_completes_pain_now(isolated_db, monkeypatch):
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    steps = bot.FLOWS["pain_now"]
+    bot.user_states[1] = {"flow": "pain_now", "step": steps[0], "data": {}}
+    for step in steps:
+        bot.user_states[1]["step"] = step
+        bot.advance_flow(1, 1, 5)
+    assert bot.user_states[1]["step"] == "_confirm"
+
+
+def test_advance_flow_with_skip(isolated_db, monkeypatch):
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    bot.user_states[1] = {"flow": "log", "step": "sleep_quality", "data": {}}
+    bot.advance_flow(1, 1, None)
+    assert bot.user_states[1]["step"] == "sleep_hours"
+    assert bot.user_states[1]["data"]["sleep_quality"] is None
 
 
 def test_advance_flow_completes_medication(isolated_db, monkeypatch):
@@ -246,6 +290,21 @@ def test_advance_flow_no_state():
     bot.advance_flow(999, 999, 5)  # should not raise
 
 
+# ── Confirmation ──────────────────────────────────────────────────────────────
+
+def test_format_confirmation():
+    data = {"back_pain": 5, "headache": 3}
+    text = bot._format_confirmation(data, "pain_now")
+    assert "کمردرد" in text
+    assert "5" in text
+
+
+def test_format_confirmation_with_skips():
+    data = {"sleep_quality": 7, "sleep_hours": None, "back_pain": None}
+    text = bot._format_confirmation(data, "log")
+    assert "—" in text
+
+
 # ── Keyboard builders ────────────────────────────────────────────────────────
 
 def test_main_menu_keyboard():
@@ -254,17 +313,21 @@ def test_main_menu_keyboard():
     for row in kb.keyboard:
         for btn in row:
             texts.append(btn.text if hasattr(btn, "text") else btn.get("text", ""))
-    assert "🌞 ثبت داده ظهر" in texts
-    assert "🌙 ثبت داده شب" in texts
+    assert "📝 ثبت داده" in texts
+    assert "🔥 درد الان" in texts
     assert "🚬 سیگار" in texts
     assert "💊 دارو" in texts
     assert "🏃 ورزش" in texts
     assert "📊 گزارش" in texts
 
 
-def test_scale_keyboard():
+def test_scale_keyboard_has_skip():
     kb = bot._scale_kb(10)
-    assert kb is not None
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "val_skip" in all_data
 
 
 def test_count_keyboard():
@@ -275,6 +338,16 @@ def test_count_keyboard():
 def test_hours_keyboard():
     kb = bot._hours_kb()
     assert kb is not None
+
+
+def test_sleep_hours_keyboard():
+    kb = bot._sleep_hours_kb()
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "val_skip" in all_data
+    assert "val_7" in all_data
 
 
 def test_yesno_keyboard():
@@ -302,9 +375,24 @@ def test_cig_count_keyboard():
     assert kb is not None
 
 
+def test_confirm_keyboard():
+    kb = bot._confirm_kb()
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "flow_confirm" in all_data
+    assert "flow_cancel" in all_data
+
+
 def test_report_menu_keyboard():
     kb = bot._report_menu_kb()
-    assert kb is not None
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "rpt_monthly" in all_data
+    assert "rpt_medeff" in all_data
 
 
 # ── ask_question ──────────────────────────────────────────────────────────────
@@ -317,6 +405,16 @@ def test_ask_question_all_steps(step, monkeypatch):
     mock_send.assert_called_once()
 
 
+def test_ask_question_with_progress(monkeypatch):
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.user_states[42] = {"flow": "log", "step": "back_pain", "data": {}}
+    bot.ask_question(42, "back_pain", user_id=42)
+    sent_text = mock_send.call_args[0][1]
+    assert "▓" in sent_text
+    assert "(3/" in sent_text
+
+
 # ── _format_last_log ─────────────────────────────────────────────────────────
 
 def test_format_last_log(isolated_db, monkeypatch):
@@ -327,6 +425,7 @@ def test_format_last_log(isolated_db, monkeypatch):
     text = bot._format_last_log(logs[0], 1)
     assert "آخرین لاگ" in text
     assert "5/10" in text
+    assert "مدت خواب" in text
 
 
 # ── Handler tests with mocked bot ────────────────────────────────────────────
@@ -370,7 +469,7 @@ def test_handle_cancel_active_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.user_states[42] = {"flow": "noon", "step": "back_pain", "data": {}}
+    bot.user_states[42] = {"flow": "log", "step": "back_pain", "data": {}}
     bot.handle_cancel(_make_message(42, "/cancel"))
     assert 42 not in bot.user_states
     assert "لغو" in mock_send.call_args[0][1]
@@ -385,20 +484,20 @@ def test_handle_cancel_no_flow(monkeypatch, isolated_db):
     assert "فعالی" in mock_send.call_args[0][1]
 
 
-def test_handle_skip_food_details(monkeypatch, isolated_db):
+def test_handle_skip_advances_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.user_states[42] = {"flow": "night", "step": "food_details", "data": {"water_amount": 8}}
+    bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {"water_amount": 8}}
     bot.handle_skip(_make_message(42, "/skip"))
     assert bot.user_states[42]["step"] == "smoke_count"
 
 
-def test_handle_skip_not_skippable(monkeypatch):
+def test_handle_skip_at_confirm_step(monkeypatch):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.user_states[42] = {"flow": "noon", "step": "back_pain", "data": {}}
+    bot.user_states[42] = {"flow": "log", "step": "_confirm", "data": {}}
     bot.handle_skip(_make_message(42, "/skip"))
     assert "رد کردن" in mock_send.call_args[0][1]
 
@@ -515,22 +614,22 @@ def test_handle_streak_nonzero(monkeypatch, isolated_db):
     assert "روز" in mock_send.call_args[0][1]
 
 
-def test_handle_noon_starts_flow(monkeypatch, isolated_db):
+def test_handle_log_starts_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.handle_noon(_make_message(42, "🌞 ثبت داده ظهر"))
+    bot.handle_log(_make_message(42, "📝 ثبت داده"))
     assert 42 in bot.user_states
-    assert bot.user_states[42]["flow"] == "noon"
+    assert bot.user_states[42]["flow"] == "log"
 
 
-def test_handle_night_starts_flow(monkeypatch, isolated_db):
+def test_handle_pain_now_starts_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.handle_night(_make_message(42, "🌙 ثبت داده شب"))
+    bot.handle_pain_now(_make_message(42, "🔥 درد الان"))
     assert 42 in bot.user_states
-    assert bot.user_states[42]["flow"] == "night"
+    assert bot.user_states[42]["flow"] == "pain_now"
 
 
 def test_handle_cigarette_starts_flow(monkeypatch, isolated_db):
@@ -572,7 +671,7 @@ def test_handle_text_in_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.user_states[42] = {"flow": "night", "step": "food_details", "data": {"water_amount": 8}}
+    bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {"water_amount": 8}}
     bot.handle_text(_make_message(42, "rice and chicken"))
     assert bot.user_states[42]["data"]["food_details"] == "rice and chicken"
 
@@ -596,9 +695,23 @@ def test_handle_value_callback(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
     monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
-    bot.user_states[42] = {"flow": "noon", "step": "sleep_quality", "data": {}}
+    bot.user_states[42] = {"flow": "log", "step": "sleep_quality", "data": {}}
     bot.handle_value_callback(_make_callback(42, "val_7"))
     assert bot.user_states[42]["data"]["sleep_quality"] == 7
+
+
+def test_handle_value_callback_skip(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {"flow": "log", "step": "sleep_quality", "data": {}}
+    bot.handle_value_callback(_make_callback(42, "val_skip"))
+    assert bot.user_states[42]["data"]["sleep_quality"] is None
+    assert bot.user_states[42]["step"] == "sleep_hours"
 
 
 def test_handle_value_callback_non_admin(monkeypatch):
@@ -626,7 +739,7 @@ def test_handle_value_callback_float(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
     monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
-    bot.user_states[42] = {"flow": "night", "step": "screen_hours", "data": {}}
+    bot.user_states[42] = {"flow": "log", "step": "screen_hours", "data": {}}
     bot.handle_value_callback(_make_callback(42, "val_1.5"))
     assert bot.user_states[42]["data"]["screen_hours"] == 1.5
 
@@ -635,9 +748,40 @@ def test_handle_value_callback_invalid(monkeypatch):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_answer = MagicMock()
     monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
-    bot.user_states[42] = {"flow": "noon", "step": "sleep_quality", "data": {}}
+    bot.user_states[42] = {"flow": "log", "step": "sleep_quality", "data": {}}
     bot.handle_value_callback(_make_callback(42, "val_bad"))
     assert "نامعتبر" in mock_answer.call_args[0][1]
+
+
+def test_handle_flow_confirm(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {"flow": "log", "step": "_confirm", "data": {"back_pain": 5}}
+    bot.handle_flow_confirm(_make_callback(42, "flow_confirm"))
+    assert 42 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=42)
+    assert len(logs) == 1
+
+
+def test_handle_flow_cancel(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {"flow": "log", "step": "_confirm", "data": {"back_pain": 5}}
+    bot.handle_flow_confirm(_make_callback(42, "flow_cancel"))
+    assert 42 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=42)
+    assert len(logs) == 0
+    assert "لغو" in mock_send.call_args[0][1]
 
 
 def test_handle_med_callback(monkeypatch, isolated_db):
@@ -735,6 +879,27 @@ def test_handle_report_callback_weekly(monkeypatch, isolated_db):
     mock_send.assert_called()
 
 
+def test_handle_report_callback_monthly(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    bot.handle_report_callback(_make_callback(42, "rpt_monthly"))
+    mock_send.assert_called()
+
+
+def test_handle_report_callback_medeff(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    bot.handle_report_callback(_make_callback(42, "rpt_medeff"))
+    assert "دارو" in mock_send.call_args[0][1]
+
+
 def test_handle_report_callback_insights(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
@@ -773,6 +938,14 @@ def test_send_weekly_report(monkeypatch, isolated_db):
     mock_send.assert_called_once()
 
 
+def test_send_monthly_report(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot._send_monthly_report(42, 42)
+    mock_send.assert_called_once()
+
+
 def test_send_history_empty(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
     mock_send = MagicMock()
@@ -795,6 +968,13 @@ def test_send_insights(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot._send_insights(42, 42)
     assert "بینش" in mock_send.call_args[0][1]
+
+
+def test_send_med_effectiveness(monkeypatch, isolated_db):
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot._send_med_effectiveness(42, 42)
+    assert "دارو" in mock_send.call_args[0][1]
 
 
 def test_send_chart_empty(monkeypatch, isolated_db):
@@ -830,6 +1010,7 @@ def test_send_noon_prompt(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot.send_noon_prompt()
     assert 42 in bot.user_states
+    assert bot.user_states[42]["flow"] == "log"
     assert mock_send.call_count >= 2
 
 
@@ -839,7 +1020,16 @@ def test_send_night_prompt(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot.send_night_prompt()
     assert 42 in bot.user_states
-    assert bot.user_states[42]["flow"] == "night"
+    assert bot.user_states[42]["flow"] == "log"
+
+
+def test_send_reminder_skips_active_flow(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.user_states[42] = {"flow": "log", "step": "back_pain", "data": {}}
+    bot._send_reminder(42, "test")
+    mock_send.assert_not_called()
 
 
 def test_send_daily_summary(monkeypatch, isolated_db):
@@ -864,6 +1054,24 @@ def test_run_daily_backup(monkeypatch, isolated_db):
     bot.run_daily_backup()
 
 
+# ── Motivational feedback ────────────────────────────────────────────────────
+
+def test_generate_feedback_insufficient_data(isolated_db):
+    result = bot._generate_feedback(42, {"back_pain": 5}, "log")
+    assert result == ""
+
+
+def test_generate_feedback_with_data(isolated_db):
+    from datetime import date, timedelta
+    today = date.today()
+    for i in range(5):
+        d = today - timedelta(days=i)
+        db.insert_log(user_id=42, back_pain=7, water_amount=5,
+                      timestamp=datetime(d.year, d.month, d.day, 12, 0))
+    result = bot._generate_feedback(42, {"back_pain": 3, "water_amount": 10}, "log")
+    assert "🌟" in result
+
+
 # ── Non-admin handler rejection ──────────────────────────────────────────────
 
 @pytest.mark.parametrize("handler", [
@@ -871,7 +1079,8 @@ def test_run_daily_backup(monkeypatch, isolated_db):
     bot.handle_timezone, bot.handle_setreminder, bot.handle_smokes,
     bot.handle_streak, bot.handle_report_cmd, bot.handle_history_cmd,
     bot.handle_today_cmd, bot.handle_insights_cmd, bot.handle_export_cmd,
-    bot.handle_backup_cmd, bot.handle_noon, bot.handle_night,
+    bot.handle_backup_cmd, bot.handle_monthly_cmd,
+    bot.handle_log, bot.handle_pain_now,
     bot.handle_cigarette, bot.handle_medication, bot.handle_exercise,
     bot.handle_report_menu, bot.handle_text,
 ])
@@ -881,7 +1090,6 @@ def test_handlers_reject_non_admin(handler, monkeypatch):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     monkeypatch.setattr(bot.bot, "send_document", MagicMock())
     handler(_make_message(42, "/test"))
-    # Non-admin: either no response or access denied
     if mock_send.called:
         text = mock_send.call_args[0][1]
         assert "دسترسی" in text or "منو" in text or True

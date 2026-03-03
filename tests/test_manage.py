@@ -414,9 +414,9 @@ class _FakeRow:
     """Minimal sqlite3.Row stand-in."""
     _KEYS = [
         "id", "timestamp", "user_id", "back_pain", "headache", "peace_level",
-        "sleep_quality", "stress_level", "anxiety_level", "water_amount",
-        "smoke_count", "caffeine_amount", "sitting_hours", "screen_hours",
-        "food_details", "period_status", "notes",
+        "sleep_quality", "sleep_hours", "stress_level", "anxiety_level",
+        "water_amount", "smoke_count", "caffeine_amount", "sitting_hours",
+        "screen_hours", "food_details", "period_status", "notes",
     ]
 
     def __init__(self, **kwargs):

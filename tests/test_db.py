@@ -100,6 +100,7 @@ def test_insert_log_all_fields():
         headache=1,
         peace_level=8,
         sleep_quality=7,
+        sleep_hours=6.5,
         water_amount=1500,
         smoke_count=3,
         caffeine_amount=2,
@@ -119,6 +120,7 @@ def test_insert_log_all_fields():
     assert row["headache"] == 1
     assert row["peace_level"] == 8
     assert row["sleep_quality"] == 7
+    assert row["sleep_hours"] == pytest.approx(6.5)
     assert row["water_amount"] == 1500
     assert row["smoke_count"] == 3
     assert row["caffeine_amount"] == 2
@@ -166,7 +168,7 @@ def test_insert_log_nullable_fields_can_be_none():
     with db.get_connection() as conn:
         row = conn.execute("SELECT * FROM logs WHERE id=?", (row_id,)).fetchone()
     for field in ("back_pain", "headache", "peace_level", "sleep_quality",
-                  "water_amount", "smoke_count", "caffeine_amount",
+                  "sleep_hours", "water_amount", "smoke_count", "caffeine_amount",
                   "sitting_hours", "screen_hours", "food_details",
                   "period_status", "stress_level", "anxiety_level", "notes"):
         assert row[field] is None
@@ -428,10 +430,10 @@ def test_set_user_settings_update():
 
 def test_save_and_load_session():
     db.init_db()
-    db.save_session(1, "noon", "back_pain", {"sleep_quality": 7})
+    db.save_session(1, "log", "back_pain", {"sleep_quality": 7})
     sess = db.load_session(1)
     assert sess is not None
-    assert sess["flow"] == "noon"
+    assert sess["flow"] == "log"
     assert sess["step"] == "back_pain"
     assert sess["data"]["sleep_quality"] == 7
 
@@ -443,15 +445,15 @@ def test_load_session_returns_none_when_missing():
 
 def test_delete_session():
     db.init_db()
-    db.save_session(1, "night", "water_amount", {})
+    db.save_session(1, "log", "water_amount", {})
     db.delete_session(1)
     assert db.load_session(1) is None
 
 
 def test_save_session_overwrites():
     db.init_db()
-    db.save_session(1, "noon", "sleep_quality", {})
-    db.save_session(1, "noon", "back_pain", {"sleep_quality": 5})
+    db.save_session(1, "log", "sleep_quality", {})
+    db.save_session(1, "log", "back_pain", {"sleep_quality": 5})
     sess = db.load_session(1)
     assert sess["step"] == "back_pain"
 
@@ -535,3 +537,4 @@ def test_migration_adds_missing_columns():
         col_names = {row[1] for row in cursor.fetchall()}
     assert "stress_level" in col_names
     assert "anxiety_level" in col_names
+    assert "sleep_hours" in col_names

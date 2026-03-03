@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS logs (
     headache INTEGER,
     peace_level INTEGER,
     sleep_quality INTEGER,
+    sleep_hours REAL,
     water_amount INTEGER,
     smoke_count INTEGER,
     caffeine_amount INTEGER,
@@ -72,6 +73,7 @@ _MIGRATIONS = {
     "logs": {
         "stress_level": "INTEGER",
         "anxiety_level": "INTEGER",
+        "sleep_hours": "REAL",
     },
 }
 
@@ -113,6 +115,7 @@ def insert_log(
     headache: Optional[int] = None,
     peace_level: Optional[int] = None,
     sleep_quality: Optional[int] = None,
+    sleep_hours: Optional[float] = None,
     water_amount: Optional[int] = None,
     smoke_count: Optional[int] = None,
     caffeine_amount: Optional[int] = None,
@@ -132,16 +135,16 @@ def insert_log(
             """
             INSERT INTO logs (
                 timestamp, user_id, back_pain, headache, peace_level,
-                sleep_quality, water_amount, smoke_count, caffeine_amount,
-                sitting_hours, screen_hours, food_details, period_status,
-                stress_level, anxiety_level, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                sleep_quality, sleep_hours, water_amount, smoke_count,
+                caffeine_amount, sitting_hours, screen_hours, food_details,
+                period_status, stress_level, anxiety_level, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ts, user_id, back_pain, headache, peace_level,
-                sleep_quality, water_amount, smoke_count, caffeine_amount,
-                sitting_hours, screen_hours, food_details, period_status,
-                stress_level, anxiety_level, notes,
+                sleep_quality, sleep_hours, water_amount, smoke_count,
+                caffeine_amount, sitting_hours, screen_hours, food_details,
+                period_status, stress_level, anxiety_level, notes,
             ),
         )
         conn.commit()

@@ -46,10 +46,34 @@ else
   fi
 fi
 
+# On Debian/Ubuntu, venv requires python3.X-venv (ensurepip). Install if missing and retry.
+try_venv() {
+  python3 -m venv venv
+}
+install_venv_package() {
+  PY_VER="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3")"
+  if [ -f /etc/debian_version ] || grep -qEi 'debian|ubuntu' /etc/os-release 2>/dev/null; then
+    echo "python3-venv (ensurepip) is missing. On Debian/Ubuntu install: python${PY_VER}-venv"
+    if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" = "0" ]; then
+      echo "Installing python${PY_VER}-venv (running as root)..."
+      apt-get update -qq && apt-get install -y "python${PY_VER}-venv" || true
+    else
+      echo "Run: sudo apt-get update && sudo apt-get install -y python${PY_VER}-venv"
+      exit 1
+    fi
+  else
+    echo "Please install Python venv/ensurepip for your distribution and run this script again."
+    exit 1
+  fi
+}
+
 # Virtual environment
 if [ ! -d "venv" ]; then
   echo "Creating virtual environment..."
-  python3 -m venv venv
+  if ! try_venv; then
+    install_venv_package
+    try_venv
+  fi
 fi
 # Activate for this script (and child processes)
 # shellcheck source=/dev/null

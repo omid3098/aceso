@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # One-liner installer for Health Tracker Bot.
-# Usage: curl -sSL <url>/install.sh | bash
-#    or: curl -sSL <url>/install.sh | bash -s -- /path/to/install
+# Usage: curl -sSL https://raw.githubusercontent.com/omid3098/aceso/main/install.sh | bash
+#    or: curl -sSL https://raw.githubusercontent.com/omid3098/aceso/main/install.sh | bash -s -- /path/to/install
 # For Linux/macOS (VPS). Not for Windows.
 
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/your-username/aceso.git}"
+REPO_URL="${REPO_URL:-https://github.com/omid3098/aceso.git}"
 INSTALL_DIR="${1:-$HOME/health-tracker-bot}"
 
 echo "Health Tracker Bot - Installer"

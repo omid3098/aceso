@@ -1,6 +1,8 @@
-"""Tests for db.py – SQLite health-log layer."""
+"""Tests for db.py – SQLite health-log layer with medications, exercises, settings, etc."""
+import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -42,9 +44,22 @@ def test_init_db_creates_logs_table():
         assert cur.fetchone() is not None
 
 
+def test_init_db_creates_all_tables():
+    db.init_db()
+    with db.get_connection() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+    for expected in ("logs", "medications", "exercises", "user_settings", "sessions"):
+        assert expected in tables
+
+
 def test_init_db_is_idempotent():
     db.init_db()
-    db.init_db()  # must not raise
+    db.init_db()
     with db.get_connection() as conn:
         count = conn.execute("SELECT count(*) FROM logs").fetchone()[0]
     assert count == 0
@@ -92,6 +107,8 @@ def test_insert_log_all_fields():
         screen_hours=5.0,
         food_details="eggs, toast",
         period_status=0,
+        stress_level=4,
+        anxiety_level=3,
         notes="test note",
         timestamp=ts,
     )
@@ -109,6 +126,8 @@ def test_insert_log_all_fields():
     assert row["screen_hours"] == pytest.approx(5.0)
     assert row["food_details"] == "eggs, toast"
     assert row["period_status"] == 0
+    assert row["stress_level"] == 4
+    assert row["anxiety_level"] == 3
     assert row["notes"] == "test note"
     assert row["timestamp"] == "2024-06-01 12:00:00"
 
@@ -140,6 +159,8 @@ def test_insert_log_nullable_fields_can_be_none():
         screen_hours=None,
         food_details=None,
         period_status=None,
+        stress_level=None,
+        anxiety_level=None,
         notes=None,
     )
     with db.get_connection() as conn:
@@ -147,7 +168,7 @@ def test_insert_log_nullable_fields_can_be_none():
     for field in ("back_pain", "headache", "peace_level", "sleep_quality",
                   "water_amount", "smoke_count", "caffeine_amount",
                   "sitting_hours", "screen_hours", "food_details",
-                  "period_status", "notes"):
+                  "period_status", "stress_level", "anxiety_level", "notes"):
         assert row[field] is None
 
 
@@ -190,7 +211,6 @@ def test_get_recent_logs_calls_init_db_internally():
     """get_recent_logs should work even before explicit init_db call."""
     rows = db.get_recent_logs(10)
     assert rows == []
-    # Table must now exist
     with db.get_connection() as conn:
         cur = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='logs'"
@@ -258,3 +278,260 @@ def test_get_recent_logs_user_id_newest_first():
     rows = db.get_recent_logs(50, user_id=10)
     assert rows[0]["id"] == id3
     assert rows[1]["id"] == id1
+
+
+# ── get_logs_by_date_range ────────────────────────────────────────────────────
+
+def test_get_logs_by_date_range_returns_matching():
+    db.init_db()
+    db.insert_log(user_id=1, timestamp=datetime(2026, 3, 1, 10, 0))
+    db.insert_log(user_id=1, timestamp=datetime(2026, 3, 2, 10, 0))
+    db.insert_log(user_id=1, timestamp=datetime(2026, 3, 3, 10, 0))
+
+    rows = db.get_logs_by_date_range(1, "2026-03-01", "2026-03-03")
+    assert len(rows) == 2
+
+
+def test_get_logs_by_date_range_ordered_asc():
+    db.init_db()
+    db.insert_log(user_id=1, timestamp=datetime(2026, 3, 2, 10, 0))
+    db.insert_log(user_id=1, timestamp=datetime(2026, 3, 1, 10, 0))
+
+    rows = db.get_logs_by_date_range(1, "2026-03-01", "2026-03-03")
+    assert rows[0]["timestamp"] < rows[1]["timestamp"]
+
+
+def test_get_logs_by_date_range_empty():
+    db.init_db()
+    rows = db.get_logs_by_date_range(1, "2026-01-01", "2026-01-02")
+    assert rows == []
+
+
+# ── get_today_smoke_count ─────────────────────────────────────────────────────
+
+def test_get_today_smoke_count_sums():
+    db.init_db()
+    db.insert_log(user_id=1, smoke_count=3, timestamp=datetime(2026, 3, 1, 8, 0))
+    db.insert_log(user_id=1, smoke_count=2, timestamp=datetime(2026, 3, 1, 14, 0))
+    db.insert_log(user_id=1, smoke_count=5, timestamp=datetime(2026, 3, 2, 8, 0))
+
+    assert db.get_today_smoke_count(1, "2026-03-01") == 5
+    assert db.get_today_smoke_count(1, "2026-03-02") == 5
+
+
+def test_get_today_smoke_count_zero_when_none():
+    db.init_db()
+    assert db.get_today_smoke_count(1, "2026-03-01") == 0
+
+
+# ── delete_last_log ───────────────────────────────────────────────────────────
+
+def test_delete_last_log_removes_latest():
+    db.init_db()
+    db.insert_log(user_id=1, back_pain=3)
+    db.insert_log(user_id=1, back_pain=7)
+
+    assert db.delete_last_log(1) is True
+    rows = db.get_recent_logs(50, user_id=1)
+    assert len(rows) == 1
+    assert rows[0]["back_pain"] == 3
+
+
+def test_delete_last_log_returns_false_when_empty():
+    db.init_db()
+    assert db.delete_last_log(999) is False
+
+
+# ── Medications ───────────────────────────────────────────────────────────────
+
+def test_insert_medication_returns_id():
+    db.init_db()
+    mid = db.insert_medication(user_id=1, name="Ibuprofen")
+    assert isinstance(mid, int) and mid >= 1
+
+
+def test_insert_medication_stores_fields():
+    db.init_db()
+    mid = db.insert_medication(user_id=1, name="Aspirin", dosage="200mg", notes="test")
+    rows = db.get_recent_medications(10, user_id=1)
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Aspirin"
+    assert rows[0]["dosage"] == "200mg"
+    assert rows[0]["notes"] == "test"
+
+
+def test_get_recent_medications_empty():
+    db.init_db()
+    assert db.get_recent_medications(10, user_id=1) == []
+
+
+def test_get_medications_by_date_range():
+    db.init_db()
+    db.insert_medication(user_id=1, name="A", timestamp=datetime(2026, 3, 1, 10, 0))
+    db.insert_medication(user_id=1, name="B", timestamp=datetime(2026, 3, 2, 10, 0))
+    db.insert_medication(user_id=1, name="C", timestamp=datetime(2026, 3, 3, 10, 0))
+
+    rows = db.get_medications_by_date_range(1, "2026-03-01", "2026-03-03")
+    assert len(rows) == 2
+
+
+# ── Exercises ─────────────────────────────────────────────────────────────────
+
+def test_insert_exercise_returns_id():
+    db.init_db()
+    eid = db.insert_exercise(user_id=1, exercise_type="Walking", duration_minutes=30)
+    assert isinstance(eid, int) and eid >= 1
+
+
+def test_insert_exercise_stores_fields():
+    db.init_db()
+    db.insert_exercise(user_id=1, exercise_type="Gym", duration_minutes=60, notes="leg day")
+    rows = db.get_recent_exercises(10, user_id=1)
+    assert len(rows) == 1
+    assert rows[0]["exercise_type"] == "Gym"
+    assert rows[0]["duration_minutes"] == 60
+
+
+def test_get_recent_exercises_empty():
+    db.init_db()
+    assert db.get_recent_exercises(10, user_id=1) == []
+
+
+# ── User settings ─────────────────────────────────────────────────────────────
+
+def test_get_user_settings_defaults():
+    db.init_db()
+    s = db.get_user_settings(1)
+    assert s["timezone"] == "UTC"
+    assert s["reminder_noon"] == "12:00"
+    assert s["reminder_night"] == "21:00"
+
+
+def test_set_and_get_user_settings():
+    db.init_db()
+    db.set_user_settings(1, timezone="Asia/Tehran", reminder_noon="13:00")
+    s = db.get_user_settings(1)
+    assert s["timezone"] == "Asia/Tehran"
+    assert s["reminder_noon"] == "13:00"
+    assert s["reminder_night"] == "21:00"
+
+
+def test_set_user_settings_update():
+    db.init_db()
+    db.set_user_settings(1, timezone="UTC")
+    db.set_user_settings(1, timezone="Europe/London")
+    s = db.get_user_settings(1)
+    assert s["timezone"] == "Europe/London"
+
+
+# ── Sessions ──────────────────────────────────────────────────────────────────
+
+def test_save_and_load_session():
+    db.init_db()
+    db.save_session(1, "noon", "back_pain", {"sleep_quality": 7})
+    sess = db.load_session(1)
+    assert sess is not None
+    assert sess["flow"] == "noon"
+    assert sess["step"] == "back_pain"
+    assert sess["data"]["sleep_quality"] == 7
+
+
+def test_load_session_returns_none_when_missing():
+    db.init_db()
+    assert db.load_session(999) is None
+
+
+def test_delete_session():
+    db.init_db()
+    db.save_session(1, "night", "water_amount", {})
+    db.delete_session(1)
+    assert db.load_session(1) is None
+
+
+def test_save_session_overwrites():
+    db.init_db()
+    db.save_session(1, "noon", "sleep_quality", {})
+    db.save_session(1, "noon", "back_pain", {"sleep_quality": 5})
+    sess = db.load_session(1)
+    assert sess["step"] == "back_pain"
+
+
+# ── Streak ────────────────────────────────────────────────────────────────────
+
+def test_streak_empty():
+    db.init_db()
+    assert db.get_logging_streak(1) == 0
+
+
+def test_streak_consecutive():
+    db.init_db()
+    today = date.today()
+    for i in range(3):
+        day = today - timedelta(days=i)
+        db.insert_log(user_id=1, timestamp=datetime(day.year, day.month, day.day, 12, 0))
+    assert db.get_logging_streak(1) == 3
+
+
+def test_streak_gap_breaks():
+    db.init_db()
+    today = date.today()
+    db.insert_log(user_id=1, timestamp=datetime(today.year, today.month, today.day, 12, 0))
+    gap_day = today - timedelta(days=2)
+    db.insert_log(user_id=1, timestamp=datetime(gap_day.year, gap_day.month, gap_day.day, 12, 0))
+    assert db.get_logging_streak(1) == 1
+
+
+# ── Backup ────────────────────────────────────────────────────────────────────
+
+def test_backup_db_creates_file(tmp_path):
+    db.init_db()
+    db.insert_log(user_id=1)
+    backup_dir = tmp_path / "backups"
+    dest = db.backup_db(backup_dir)
+    assert dest.exists()
+    assert "tracker_" in dest.name
+
+
+def test_backup_rotates(tmp_path):
+    db.init_db()
+    backup_dir = tmp_path / "backups"
+    for _ in range(10):
+        db.backup_db(backup_dir)
+    backups = list(backup_dir.glob("tracker_*.db"))
+    assert len(backups) <= 7
+
+
+# ── Export ────────────────────────────────────────────────────────────────────
+
+def test_export_logs_csv_empty():
+    db.init_db()
+    assert db.export_logs_csv(999) == ""
+
+
+def test_export_logs_csv_has_header_and_data():
+    db.init_db()
+    db.insert_log(user_id=1, back_pain=5)
+    csv_str = db.export_logs_csv(1)
+    lines = csv_str.strip().split("\n")
+    assert len(lines) == 2
+    assert "back_pain" in lines[0]
+
+
+def test_export_logs_csv_date_filter():
+    db.init_db()
+    db.insert_log(user_id=1, timestamp=datetime(2026, 1, 1, 10, 0))
+    db.insert_log(user_id=1, timestamp=datetime(2026, 6, 1, 10, 0))
+    csv_str = db.export_logs_csv(1, start_date="2026-05-01")
+    lines = csv_str.strip().split("\n")
+    assert len(lines) == 2
+
+
+# ── Migrations ────────────────────────────────────────────────────────────────
+
+def test_migration_adds_missing_columns():
+    db.init_db()
+    with db.get_connection() as conn:
+        cursor = conn.execute("PRAGMA table_info(logs)")
+        col_names = {row[1] for row in cursor.fetchall()}
+    assert "stress_level" in col_names
+    assert "anxiety_level" in col_names

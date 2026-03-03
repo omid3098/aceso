@@ -18,7 +18,6 @@ ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 REQUIREMENTS = PROJECT_ROOT / "requirements.txt"
 SERVICE_NAME = "health-bot.service"
 
-# Module-level imports so all helper functions can use Prompt/Table/etc.
 try:
     from rich.console import Console
     from rich.panel import Panel
@@ -30,8 +29,6 @@ except ImportError:
 
 
 def main():
-    # When launched via `curl | bash`, stdin is the pipe (EOF).
-    # Reopen stdin from the controlling terminal so the interactive TUI works.
     if not sys.stdin.isatty():
         try:
             sys.stdin = open("/dev/tty", "r")
@@ -140,13 +137,19 @@ def save_env(data: dict[str, str]) -> None:
 
 
 def do_update_config(console):
-    """Prompt for BOT_TOKEN and ADMIN_IDS, write to .env."""
+    """Prompt for BOT_TOKEN, ADMIN_IDS, TIMEZONE, and reminder times."""
     console.print("[bold]Update Bot Token & Admin IDs[/bold]")
     env = load_env()
     token = Prompt.ask("Bot Token", default=env.get("BOT_TOKEN", "")).strip()
     admin_ids = Prompt.ask("Admin User IDs (comma-separated)", default=env.get("ADMIN_IDS", "")).strip()
+    timezone = Prompt.ask("Timezone (e.g. Asia/Tehran, UTC)", default=env.get("TIMEZONE", "UTC")).strip()
+    reminder_noon = Prompt.ask("Noon reminder (HH:MM)", default=env.get("REMINDER_NOON", "12:00")).strip()
+    reminder_night = Prompt.ask("Night reminder (HH:MM)", default=env.get("REMINDER_NIGHT", "21:00")).strip()
     env["BOT_TOKEN"] = token
     env["ADMIN_IDS"] = admin_ids
+    env["TIMEZONE"] = timezone
+    env["REMINDER_NOON"] = reminder_noon
+    env["REMINDER_NIGHT"] = reminder_night
     save_env(env)
     console.print("[green]Config saved to .env[/green]")
 
@@ -176,7 +179,6 @@ def do_systemd(console):
         console.print("[red]Invalid action.[/red]")
         return
     cmd = ["systemctl", cmd_map[action], SERVICE_NAME]
-    # Prefer user service so no sudo (getuid is Unix-only)
     if getattr(os, "getuid", lambda: -1)() != 0:
         cmd = ["systemctl", "--user", cmd_map[action], SERVICE_NAME]
     try:
@@ -209,9 +211,12 @@ def do_view_logs(console):
         console.print("No logs yet.")
         return
     table = Table(show_header=True, header_style="bold")
-    keys = ["id", "timestamp", "user_id", "back_pain", "headache", "peace_level", "sleep_quality",
-            "water_amount", "smoke_count", "caffeine_amount", "sitting_hours", "screen_hours",
-            "food_details", "period_status", "notes"]
+    keys = [
+        "id", "timestamp", "user_id", "back_pain", "headache", "peace_level",
+        "sleep_quality", "stress_level", "anxiety_level", "water_amount",
+        "smoke_count", "caffeine_amount", "sitting_hours", "screen_hours",
+        "food_details", "period_status", "notes",
+    ]
     for k in keys:
         table.add_column(k, overflow="fold")
     for row in rows:

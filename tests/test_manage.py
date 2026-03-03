@@ -228,27 +228,41 @@ def test_do_install_deps_no_venv_warns(env_dir, mock_console):
 # ── do_update_config ──────────────────────────────────────────────────────────
 
 def test_do_update_config_saves_new_token(env_dir, mock_console):
-    with patch("manage.Prompt.ask", side_effect=["newtoken", "1,2,3"]):
+    with patch("manage.Prompt.ask", side_effect=["newtoken", "1,2,3", "UTC", "12:00", "21:00"]):
         manage.do_update_config(mock_console)
     assert manage.load_env()["BOT_TOKEN"] == "newtoken"
 
 
 def test_do_update_config_saves_admin_ids(env_dir, mock_console):
-    with patch("manage.Prompt.ask", side_effect=["tok", "42,99"]):
+    with patch("manage.Prompt.ask", side_effect=["tok", "42,99", "UTC", "12:00", "21:00"]):
         manage.do_update_config(mock_console)
     assert manage.load_env()["ADMIN_IDS"] == "42,99"
 
 
+def test_do_update_config_saves_timezone(env_dir, mock_console):
+    with patch("manage.Prompt.ask", side_effect=["tok", "1", "Asia/Tehran", "12:00", "21:00"]):
+        manage.do_update_config(mock_console)
+    assert manage.load_env()["TIMEZONE"] == "Asia/Tehran"
+
+
+def test_do_update_config_saves_reminder_times(env_dir, mock_console):
+    with patch("manage.Prompt.ask", side_effect=["tok", "1", "UTC", "13:30", "22:00"]):
+        manage.do_update_config(mock_console)
+    env = manage.load_env()
+    assert env["REMINDER_NOON"] == "13:30"
+    assert env["REMINDER_NIGHT"] == "22:00"
+
+
 def test_do_update_config_uses_existing_defaults(env_dir, mock_console):
-    manage.ENV_FILE.write_text("BOT_TOKEN=oldtok\nADMIN_IDS=5\n")
-    with patch("manage.Prompt.ask", side_effect=["oldtok", "5"]) as mock_ask:
+    manage.ENV_FILE.write_text("BOT_TOKEN=oldtok\nADMIN_IDS=5\nTIMEZONE=UTC\nREMINDER_NOON=12:00\nREMINDER_NIGHT=21:00\n")
+    with patch("manage.Prompt.ask", side_effect=["oldtok", "5", "UTC", "12:00", "21:00"]) as mock_ask:
         manage.do_update_config(mock_console)
     first_call_kwargs = mock_ask.call_args_list[0]
     assert "oldtok" in str(first_call_kwargs)
 
 
 def test_do_update_config_prints_success(env_dir, mock_console):
-    with patch("manage.Prompt.ask", side_effect=["t", "1"]):
+    with patch("manage.Prompt.ask", side_effect=["t", "1", "UTC", "12:00", "21:00"]):
         manage.do_update_config(mock_console)
     assert "saved" in printed(mock_console).lower() or "config" in printed(mock_console).lower()
 
@@ -265,7 +279,6 @@ def test_do_systemd_back_exits_cleanly(mock_console):
     with patch("manage.systemctl_available", return_value=True):
         with patch("manage.Prompt.ask", return_value="x"):
             manage.do_systemd(mock_console)
-    # No subprocess call expected
     with patch("manage.subprocess.run") as mock_run:
         mock_run.assert_not_called()
 
@@ -399,9 +412,12 @@ def test_do_git_update_root_uses_system_service(tmp_path, monkeypatch, mock_cons
 
 class _FakeRow:
     """Minimal sqlite3.Row stand-in."""
-    _KEYS = ["id", "timestamp", "user_id", "back_pain", "headache", "peace_level",
-             "sleep_quality", "water_amount", "smoke_count", "caffeine_amount",
-             "sitting_hours", "screen_hours", "food_details", "period_status", "notes"]
+    _KEYS = [
+        "id", "timestamp", "user_id", "back_pain", "headache", "peace_level",
+        "sleep_quality", "stress_level", "anxiety_level", "water_amount",
+        "smoke_count", "caffeine_amount", "sitting_hours", "screen_hours",
+        "food_details", "period_status", "notes",
+    ]
 
     def __init__(self, **kwargs):
         self._data = {k: kwargs.get(k) for k in self._KEYS}

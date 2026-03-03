@@ -1,0 +1,25 @@
+# Systemd unit for Health Tracker Bot
+# Before installing: replace INSTALL_DIR with the project path (e.g. /home/user/health-tracker-bot).
+#
+# User service (no sudo):
+#   sed 's|INSTALL_DIR|/home/user/health-tracker-bot|g' health-bot.service > ~/.config/systemd/user/health-bot.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now health-bot.service
+#
+# System-wide: copy to /etc/systemd/system/, set User= to your bot user, then daemon-reload and enable.
+
+[Unit]
+Description=Health Tracker Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=INSTALL_DIR
+Environment=PATH=INSTALL_DIR/venv/bin
+ExecStart=INSTALL_DIR/venv/bin/python -u INSTALL_DIR/bot.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

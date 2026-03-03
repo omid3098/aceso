@@ -27,7 +27,11 @@ FIELD_LABELS = {
     "smoke_count": "Cigarettes",
     "caffeine_amount": "Caffeine",
     "screen_hours": "Screen (h)",
+    "phone_hours": "Phone (h)",
+    "computer_hours": "Computer (h)",
     "sitting_hours": "Sitting (h)",
+    "heater_hours": "Heater (h)",
+    "heavy_lifting_kg": "Lifting (kg)",
 }
 
 FIELD_LABELS_FA = {
@@ -40,7 +44,11 @@ FIELD_LABELS_FA = {
     "smoke_count": "سیگار",
     "caffeine_amount": "کافئین",
     "screen_hours": "صفحه‌نمایش",
+    "phone_hours": "گوشی",
+    "computer_hours": "سیستم",
     "sitting_hours": "نشستن",
+    "heater_hours": "گرمکن",
+    "heavy_lifting_kg": "بلند کردن سنگین",
 }
 
 
@@ -124,7 +132,8 @@ _REPORT_FIELDS = [
     ("peace_level", "🧘 آرامش"),
     ("water_amount", "💧 آب"),
     ("caffeine_amount", "☕ کافئین"),
-    ("screen_hours", "📱 صفحه‌نمایش"),
+    ("phone_hours", "📱 گوشی"),
+    ("computer_hours", "💻 سیستم"),
     ("sitting_hours", "🪑 نشستن"),
 ]
 
@@ -157,7 +166,8 @@ def generate_weekly_report(
     total_smokes = sum(_get_val(r, "smoke_count") for r in logs if _get_val(r, "smoke_count"))
     prev_smokes = sum(_get_val(r, "smoke_count") for r in prev_logs if _get_val(r, "smoke_count"))
     smoke_arrow = _trend_arrow(total_smokes, prev_smokes)
-    lines.append(f"🚬 سیگار: {total_smokes} نخ{smoke_arrow}")
+    smoke_display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
+    lines.append(f"🚬 سیگار: {smoke_display} نخ{smoke_arrow}")
 
     if medications:
         lines.append(f"\n💊 دارو: {len(medications)} بار مصرف")
@@ -193,7 +203,8 @@ def generate_monthly_report(
     total_smokes = sum(_get_val(r, "smoke_count") for r in logs if _get_val(r, "smoke_count"))
     prev_smokes = sum(_get_val(r, "smoke_count") for r in prev_logs if _get_val(r, "smoke_count"))
     smoke_arrow = _trend_arrow(total_smokes, prev_smokes)
-    lines.append(f"🚬 سیگار: {total_smokes} نخ{smoke_arrow}")
+    smoke_display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
+    lines.append(f"🚬 سیگار: {smoke_display} نخ{smoke_arrow}")
 
     days_logged = len(set(
         _get_val(r, "timestamp")[:10] for r in logs if _get_val(r, "timestamp")
@@ -225,12 +236,14 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
         ("water_amount", "💧 آب", " لیوان"),
         ("smoke_count", "🚬 سیگار", " نخ"),
         ("caffeine_amount", "☕ کافئین", ""),
-        ("screen_hours", "📱 صفحه‌نمایش", " ساعت"),
+        ("phone_hours", "📱 گوشی", " ساعت"),
+        ("computer_hours", "💻 سیستم", " ساعت"),
         ("sitting_hours", "🪑 نشستن", " ساعت"),
     ]
 
     latest = {}
     total_smokes = 0
+    total_patches = 0
     for log in logs:
         for key, _, _ in fields:
             val = _get_val(log, key)
@@ -239,12 +252,32 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
                     total_smokes += val
                 else:
                     latest[key] = val
+        bp = _get_val(log, "back_patch")
+        if bp:
+            total_patches += bp
 
     for key, label, unit in fields:
         if key == "smoke_count":
-            lines.append(f"{label}: {total_smokes}{unit}")
+            display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
+            lines.append(f"{label}: {display}{unit}")
         elif key in latest:
             lines.append(f"{label}: {latest[key]}{unit}")
+
+    if total_patches:
+        lines.append(f"🩹 چسب کمر: {total_patches} بار")
+
+    massage_vals = [_get_val(log, "massage_type") for log in logs if _get_val(log, "massage_type")]
+    if massage_vals:
+        _massage_map = {"firm": "💪 محکم", "gentle": "🤲 آروم", "none": "❌ نبوده"}
+        lines.append(f"💆 ماساژ: {_massage_map.get(massage_vals[-1], massage_vals[-1])}")
+
+    heater_vals = [_get_val(log, "heater_hours") for log in logs if _get_val(log, "heater_hours") is not None]
+    if heater_vals:
+        lines.append(f"🔌 گرمکن: {heater_vals[-1]} ساعت")
+
+    lifting_vals = [_get_val(log, "heavy_lifting_kg") for log in logs if _get_val(log, "heavy_lifting_kg") is not None]
+    if lifting_vals:
+        lines.append(f"🏋️ سنگین: {lifting_vals[-1]} کیلو")
 
     food_items = [_get_val(log, "food_details") for log in logs if _get_val(log, "food_details")]
     if food_items:
@@ -287,7 +320,8 @@ def compute_correlations(logs: list) -> list[str]:
         except (TypeError, IndexError):
             continue
         for field in ("back_pain", "headache", "peace_level", "sleep_quality",
-                      "sleep_hours", "sitting_hours", "screen_hours",
+                      "sleep_hours", "sitting_hours", "phone_hours",
+                      "computer_hours", "screen_hours",
                       "water_amount", "caffeine_amount", "smoke_count"):
             val = _get_val(log, field)
             if val is not None:
@@ -301,6 +335,10 @@ def compute_correlations(logs: list) -> list[str]:
 
     pairs = [
         ("sitting_hours", "back_pain", "نشستن", "کمردرد"),
+        ("phone_hours", "headache", "گوشی", "سردرد"),
+        ("phone_hours", "back_pain", "گوشی", "کمردرد"),
+        ("computer_hours", "headache", "سیستم", "سردرد"),
+        ("computer_hours", "back_pain", "سیستم", "کمردرد"),
         ("screen_hours", "headache", "صفحه‌نمایش", "سردرد"),
         ("screen_hours", "back_pain", "صفحه‌نمایش", "کمردرد"),
         ("sleep_quality", "back_pain", "کیفیت خواب", "کمردرد"),

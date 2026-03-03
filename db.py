@@ -74,6 +74,12 @@ _MIGRATIONS = {
         "stress_level": "INTEGER",
         "anxiety_level": "INTEGER",
         "sleep_hours": "REAL",
+        "phone_hours": "REAL",
+        "computer_hours": "REAL",
+        "back_patch": "INTEGER",
+        "heater_hours": "REAL",
+        "massage_type": "TEXT",
+        "heavy_lifting_kg": "REAL",
     },
 }
 
@@ -117,14 +123,20 @@ def insert_log(
     sleep_quality: Optional[int] = None,
     sleep_hours: Optional[float] = None,
     water_amount: Optional[int] = None,
-    smoke_count: Optional[int] = None,
+    smoke_count=None,
     caffeine_amount: Optional[int] = None,
     sitting_hours: Optional[float] = None,
     screen_hours: Optional[float] = None,
+    phone_hours: Optional[float] = None,
+    computer_hours: Optional[float] = None,
     food_details: Optional[str] = None,
     period_status: Optional[int] = None,
     stress_level: Optional[int] = None,
     anxiety_level: Optional[int] = None,
+    back_patch: Optional[int] = None,
+    heater_hours: Optional[float] = None,
+    massage_type: Optional[str] = None,
+    heavy_lifting_kg: Optional[float] = None,
     notes: Optional[str] = None,
     timestamp: Optional[datetime] = None,
 ) -> int:
@@ -136,15 +148,21 @@ def insert_log(
             INSERT INTO logs (
                 timestamp, user_id, back_pain, headache, peace_level,
                 sleep_quality, sleep_hours, water_amount, smoke_count,
-                caffeine_amount, sitting_hours, screen_hours, food_details,
-                period_status, stress_level, anxiety_level, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                caffeine_amount, sitting_hours, screen_hours,
+                phone_hours, computer_hours,
+                food_details, period_status, stress_level, anxiety_level,
+                back_patch, heater_hours, massage_type, heavy_lifting_kg,
+                notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ts, user_id, back_pain, headache, peace_level,
                 sleep_quality, sleep_hours, water_amount, smoke_count,
-                caffeine_amount, sitting_hours, screen_hours, food_details,
-                period_status, stress_level, anxiety_level, notes,
+                caffeine_amount, sitting_hours, screen_hours,
+                phone_hours, computer_hours,
+                food_details, period_status, stress_level, anxiety_level,
+                back_patch, heater_hours, massage_type, heavy_lifting_kg,
+                notes,
             ),
         )
         conn.commit()
@@ -182,12 +200,24 @@ def get_logs_by_date_range(
         return list(cur.fetchall())
 
 
-def get_today_smoke_count(user_id: int, today_str: str) -> int:
+def get_today_smoke_count(user_id: int, today_str: str) -> float:
     """Sum of smoke_count for a given day (today_str like '2026-03-01')."""
     init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(smoke_count), 0) as total "
+            "FROM logs WHERE user_id = ? AND timestamp LIKE ?",
+            (user_id, f"{today_str}%"),
+        )
+        return cur.fetchone()["total"]
+
+
+def get_today_patch_count(user_id: int, today_str: str) -> int:
+    """Count of back_patch entries for a given day."""
+    init_db()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT COALESCE(SUM(back_patch), 0) as total "
             "FROM logs WHERE user_id = ? AND timestamp LIKE ?",
             (user_id, f"{today_str}%"),
         )

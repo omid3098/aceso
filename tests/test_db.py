@@ -538,3 +538,71 @@ def test_migration_adds_missing_columns():
     assert "stress_level" in col_names
     assert "anxiety_level" in col_names
     assert "sleep_hours" in col_names
+
+
+def test_migration_adds_new_columns():
+    db.init_db()
+    with db.get_connection() as conn:
+        cursor = conn.execute("PRAGMA table_info(logs)")
+        col_names = {row[1] for row in cursor.fetchall()}
+    for col in ("phone_hours", "computer_hours", "back_patch",
+                "heater_hours", "massage_type", "heavy_lifting_kg"):
+        assert col in col_names, f"Missing column: {col}"
+
+
+# ── insert_log new fields ────────────────────────────────────────────────────
+
+def test_insert_log_new_fields():
+    db.init_db()
+    row_id = db.insert_log(
+        user_id=1,
+        phone_hours=3.5,
+        computer_hours=6.0,
+        back_patch=1,
+        heater_hours=2.0,
+        massage_type="firm",
+        heavy_lifting_kg=10.0,
+    )
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM logs WHERE id=?", (row_id,)).fetchone()
+    assert row["phone_hours"] == pytest.approx(3.5)
+    assert row["computer_hours"] == pytest.approx(6.0)
+    assert row["back_patch"] == 1
+    assert row["heater_hours"] == pytest.approx(2.0)
+    assert row["massage_type"] == "firm"
+    assert row["heavy_lifting_kg"] == pytest.approx(10.0)
+
+
+def test_insert_log_half_smoke_count():
+    db.init_db()
+    row_id = db.insert_log(user_id=1, smoke_count=0.5)
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM logs WHERE id=?", (row_id,)).fetchone()
+    assert row["smoke_count"] == pytest.approx(0.5)
+
+
+# ── get_today_smoke_count with decimals ──────────────────────────────────────
+
+def test_get_today_smoke_count_half_units():
+    db.init_db()
+    db.insert_log(user_id=1, smoke_count=0.5, timestamp=datetime(2026, 3, 1, 8, 0))
+    db.insert_log(user_id=1, smoke_count=0.5, timestamp=datetime(2026, 3, 1, 10, 0))
+    db.insert_log(user_id=1, smoke_count=0.5, timestamp=datetime(2026, 3, 1, 14, 0))
+    total = db.get_today_smoke_count(1, "2026-03-01")
+    assert total == pytest.approx(1.5)
+
+
+# ── get_today_patch_count ────────────────────────────────────────────────────
+
+def test_get_today_patch_count_sums():
+    db.init_db()
+    db.insert_log(user_id=1, back_patch=1, timestamp=datetime(2026, 3, 1, 8, 0))
+    db.insert_log(user_id=1, back_patch=1, timestamp=datetime(2026, 3, 1, 14, 0))
+    db.insert_log(user_id=1, back_patch=1, timestamp=datetime(2026, 3, 2, 8, 0))
+    assert db.get_today_patch_count(1, "2026-03-01") == 2
+    assert db.get_today_patch_count(1, "2026-03-02") == 1
+
+
+def test_get_today_patch_count_zero_when_none():
+    db.init_db()
+    assert db.get_today_patch_count(1, "2026-03-01") == 0

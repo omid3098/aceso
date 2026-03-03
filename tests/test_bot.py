@@ -147,7 +147,10 @@ def test_flows_defined():
     assert "pain_now" in bot.FLOWS
     assert "medication" in bot.FLOWS
     assert "exercise" in bot.FLOWS
-    assert "cigarette" in bot.FLOWS
+    assert "heater" in bot.FLOWS
+    assert "massage" in bot.FLOWS
+    assert "lifting" in bot.FLOWS
+    assert "period" in bot.FLOWS
 
 
 def test_questions_cover_all_flow_steps():
@@ -170,7 +173,7 @@ def test_progress_bar_middle_step():
 
 
 def test_progress_bar_single_step_flow():
-    bar = bot._progress_bar("cig_count", "cigarette")
+    bar = bot._progress_bar("heater_hours", "heater")
     assert bar == ""
 
 
@@ -277,13 +280,40 @@ def test_advance_flow_completes_exercise(isolated_db, monkeypatch):
     assert len(exs) == 1
 
 
-def test_advance_flow_completes_cigarette(isolated_db, monkeypatch):
+def test_advance_flow_completes_heater(isolated_db, monkeypatch):
     monkeypatch.setattr(bot.bot, "send_message", MagicMock())
-    bot.user_states[1] = {"flow": "cigarette", "step": "cig_count", "data": {}}
-    bot.advance_flow(1, 1, 3)
+    bot.user_states[1] = {"flow": "heater", "step": "heater_hours", "data": {}}
+    bot.advance_flow(1, 1, 2.5)
     assert 1 not in bot.user_states
     logs = db.get_recent_logs(1, user_id=1)
-    assert logs[0]["smoke_count"] == 3
+    assert logs[0]["heater_hours"] == pytest.approx(2.5)
+
+
+def test_advance_flow_completes_massage(isolated_db, monkeypatch):
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    bot.user_states[1] = {"flow": "massage", "step": "massage_type", "data": {}}
+    bot.advance_flow(1, 1, "firm")
+    assert 1 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=1)
+    assert logs[0]["massage_type"] == "firm"
+
+
+def test_advance_flow_completes_lifting(isolated_db, monkeypatch):
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    bot.user_states[1] = {"flow": "lifting", "step": "lifting_weight", "data": {}}
+    bot.advance_flow(1, 1, 10)
+    assert 1 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=1)
+    assert logs[0]["heavy_lifting_kg"] == pytest.approx(10)
+
+
+def test_advance_flow_completes_period(isolated_db, monkeypatch):
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    bot.user_states[1] = {"flow": "period", "step": "period_status", "data": {}}
+    bot.advance_flow(1, 1, 1)
+    assert 1 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=1)
+    assert logs[0]["period_status"] == 1
 
 
 def test_advance_flow_no_state():
@@ -314,11 +344,26 @@ def test_main_menu_keyboard():
         for btn in row:
             texts.append(btn.text if hasattr(btn, "text") else btn.get("text", ""))
     assert "📝 ثبت داده" in texts
+    assert "📊 گزارش" in texts
     assert "🔥 درد الان" in texts
     assert "🚬 سیگار" in texts
+    assert "🩹 چسب کمر" in texts
     assert "💊 دارو" in texts
     assert "🏃 ورزش" in texts
-    assert "📊 گزارش" in texts
+    assert "📋 بیشتر" in texts
+
+
+def test_main_menu_visual_hierarchy():
+    """Primary buttons should be in their own full-width rows."""
+    kb = bot.main_menu_keyboard()
+    rows = kb.keyboard
+    row_texts = []
+    for row in rows:
+        row_texts.append([btn.text if hasattr(btn, "text") else btn.get("text", "") for btn in row])
+    assert row_texts[0] == ["📝 ثبت داده"]
+    assert row_texts[1] == ["📊 گزارش"]
+    assert len(row_texts[2]) == 3
+    assert len(row_texts[3]) == 3
 
 
 def test_scale_keyboard_has_skip():
@@ -370,9 +415,37 @@ def test_duration_keyboard():
     assert kb is not None
 
 
-def test_cig_count_keyboard():
-    kb = bot._cig_count_kb()
-    assert kb is not None
+def test_massage_type_keyboard():
+    kb = bot._massage_type_kb()
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "val_firm" in all_data
+    assert "val_gentle" in all_data
+    assert "val_none" in all_data
+
+
+def test_lifting_keyboard():
+    kb = bot._lifting_kb()
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "val_1" in all_data
+    assert "val_10" in all_data
+
+
+def test_more_menu_keyboard():
+    kb = bot._more_menu_kb()
+    all_data = []
+    for row in kb.keyboard:
+        for btn in row:
+            all_data.append(btn.callback_data)
+    assert "more_heater" in all_data
+    assert "more_massage" in all_data
+    assert "more_lifting" in all_data
+    assert "more_period" in all_data
 
 
 def test_confirm_keyboard():
@@ -426,6 +499,23 @@ def test_format_last_log(isolated_db, monkeypatch):
     assert "آخرین لاگ" in text
     assert "5/10" in text
     assert "مدت خواب" in text
+
+
+def test_format_last_log_with_new_fields(isolated_db, monkeypatch):
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    db.insert_log(user_id=1, back_pain=5, phone_hours=3.5, computer_hours=2.0,
+                  back_patch=1, heater_hours=1.5, massage_type="firm",
+                  heavy_lifting_kg=5.0,
+                  timestamp=datetime(2026, 3, 1, 12, 0))
+    logs = db.get_recent_logs(1, user_id=1)
+    text = bot._format_last_log(logs[0], 1)
+    assert "گوشی" in text
+    assert "3.5" in text
+    assert "سیستم" in text
+    assert "چسب کمر" in text
+    assert "گرمکن" in text
+    assert "محکم" in text
+    assert "سنگین" in text
 
 
 # ── Handler tests with mocked bot ────────────────────────────────────────────
@@ -490,7 +580,7 @@ def test_handle_skip_advances_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {"water_amount": 8}}
     bot.handle_skip(_make_message(42, "/skip"))
-    assert bot.user_states[42]["step"] == "smoke_count"
+    assert bot.user_states[42]["step"] == "caffeine_amount"
 
 
 def test_handle_skip_at_confirm_step(monkeypatch):
@@ -632,13 +722,31 @@ def test_handle_pain_now_starts_flow(monkeypatch, isolated_db):
     assert bot.user_states[42]["flow"] == "pain_now"
 
 
-def test_handle_cigarette_starts_flow(monkeypatch, isolated_db):
+def test_handle_cigarette_one_tap(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot.handle_cigarette(_make_message(42, "🚬 سیگار"))
-    assert 42 in bot.user_states
-    assert bot.user_states[42]["flow"] == "cigarette"
+    assert 42 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=42)
+    assert len(logs) == 1
+    assert logs[0]["smoke_count"] == 0.5
+    sent_text = mock_send.call_args[0][1]
+    assert "نصف سیگار" in sent_text
+
+
+def test_handle_cigarette_accumulates(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.handle_cigarette(_make_message(42, "🚬 سیگار"))
+    bot.handle_cigarette(_make_message(42, "🚬 سیگار"))
+    bot.handle_cigarette(_make_message(42, "🚬 سیگار"))
+    logs = db.get_recent_logs(10, user_id=42)
+    assert len(logs) == 3
+    total = sum(l["smoke_count"] for l in logs)
+    assert total == pytest.approx(1.5)
 
 
 def test_handle_medication_starts_flow(monkeypatch, isolated_db):
@@ -657,6 +765,41 @@ def test_handle_exercise_starts_flow(monkeypatch, isolated_db):
     bot.handle_exercise(_make_message(42, "🏃 ورزش"))
     assert 42 in bot.user_states
     assert bot.user_states[42]["flow"] == "exercise"
+
+
+def test_handle_back_patch_one_tap(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.handle_back_patch(_make_message(42, "🩹 چسب کمر"))
+    assert 42 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=42)
+    assert len(logs) == 1
+    assert logs[0]["back_patch"] == 1
+    sent_text = mock_send.call_args[0][1]
+    assert "چسب کمر" in sent_text
+
+
+def test_handle_back_patch_accumulates(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.handle_back_patch(_make_message(42, "🩹 چسب کمر"))
+    bot.handle_back_patch(_make_message(42, "🩹 چسب کمر"))
+    logs = db.get_recent_logs(10, user_id=42)
+    assert len(logs) == 2
+    assert all(l["back_patch"] == 1 for l in logs)
+
+
+def test_handle_more_menu(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.handle_more_menu(_make_message(42, "📋 بیشتر"))
+    sent_text = mock_send.call_args[0][1]
+    assert "چی میخوای" in sent_text
 
 
 def test_handle_report_menu(monkeypatch, isolated_db):
@@ -739,9 +882,9 @@ def test_handle_value_callback_float(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
     monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
-    bot.user_states[42] = {"flow": "log", "step": "screen_hours", "data": {}}
+    bot.user_states[42] = {"flow": "log", "step": "phone_hours", "data": {}}
     bot.handle_value_callback(_make_callback(42, "val_1.5"))
-    assert bot.user_states[42]["data"]["screen_hours"] == 1.5
+    assert bot.user_states[42]["data"]["phone_hours"] == 1.5
 
 
 def test_handle_value_callback_invalid(monkeypatch):
@@ -834,6 +977,73 @@ def test_handle_exercise_callback_other(monkeypatch, isolated_db):
     bot.user_states[42] = {"flow": "exercise", "step": "exercise_type", "data": {}}
     bot.handle_exercise_callback(_make_callback(42, "ex_Other"))
     assert "بنویس" in mock_send.call_args[0][1]
+
+
+def test_handle_more_callback_heater(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.handle_more_callback(_make_callback(42, "more_heater"))
+    assert 42 in bot.user_states
+    assert bot.user_states[42]["flow"] == "heater"
+
+
+def test_handle_more_callback_massage(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.handle_more_callback(_make_callback(42, "more_massage"))
+    assert 42 in bot.user_states
+    assert bot.user_states[42]["flow"] == "massage"
+
+
+def test_handle_more_callback_lifting(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.handle_more_callback(_make_callback(42, "more_lifting"))
+    assert 42 in bot.user_states
+    assert bot.user_states[42]["flow"] == "lifting"
+
+
+def test_handle_more_callback_period(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.handle_more_callback(_make_callback(42, "more_period"))
+    assert 42 in bot.user_states
+    assert bot.user_states[42]["flow"] == "period"
+
+
+def test_handle_value_callback_massage_string(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {"flow": "massage", "step": "massage_type", "data": {}}
+    bot.handle_value_callback(_make_callback(42, "val_firm"))
+    assert 42 not in bot.user_states
+    logs = db.get_recent_logs(1, user_id=42)
+    assert logs[0]["massage_type"] == "firm"
 
 
 def test_handle_report_callback_last(monkeypatch, isolated_db):
@@ -1082,6 +1292,7 @@ def test_generate_feedback_with_data(isolated_db):
     bot.handle_backup_cmd, bot.handle_monthly_cmd,
     bot.handle_log, bot.handle_pain_now,
     bot.handle_cigarette, bot.handle_medication, bot.handle_exercise,
+    bot.handle_back_patch, bot.handle_more_menu,
     bot.handle_report_menu, bot.handle_text,
 ])
 def test_handlers_reject_non_admin(handler, monkeypatch):

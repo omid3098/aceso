@@ -73,13 +73,15 @@ def test_weekly_report_with_trend_arrows():
         "back_pain": 7, "headache": None, "peace_level": None,
         "sleep_quality": 6, "sleep_hours": 7.0,
         "water_amount": None, "caffeine_amount": None,
-        "screen_hours": None, "sitting_hours": None, "smoke_count": 3,
+        "phone_hours": None, "computer_hours": None,
+        "sitting_hours": None, "smoke_count": 3,
     })]
     prev_week = [_make_row({
         "back_pain": 4, "headache": None, "peace_level": None,
         "sleep_quality": 8, "sleep_hours": 8.0,
         "water_amount": None, "caffeine_amount": None,
-        "screen_hours": None, "sitting_hours": None, "smoke_count": 1,
+        "phone_hours": None, "computer_hours": None,
+        "sitting_hours": None, "smoke_count": 1,
     })]
     text = reports.generate_weekly_report(this_week, prev_week, [], [])
     assert "گزارش هفتگی" in text
@@ -213,3 +215,105 @@ def test_med_effectiveness_with_data():
     text = reports.compute_med_effectiveness(logs, meds)
     assert "Ibuprofen" in text
     assert "کمردرد" in text
+
+
+# ── Daily summary with new fields ────────────────────────────────────────────
+
+def test_daily_summary_with_phone_computer_hours():
+    db.insert_log(user_id=1, phone_hours=3.5, computer_hours=6.0, back_pain=5)
+    logs = db.get_recent_logs(10, user_id=1)
+    text = reports.generate_daily_summary(logs, [], [])
+    assert "گوشی" in text
+    assert "3.5" in text
+    assert "سیستم" in text
+    assert "6.0" in text
+
+
+def test_daily_summary_with_back_patch():
+    db.insert_log(user_id=1, back_patch=1)
+    db.insert_log(user_id=1, back_patch=1)
+    logs = db.get_recent_logs(10, user_id=1)
+    text = reports.generate_daily_summary(logs, [], [])
+    assert "چسب کمر" in text
+    assert "2" in text
+
+
+def test_daily_summary_with_massage():
+    db.insert_log(user_id=1, massage_type="gentle")
+    logs = db.get_recent_logs(10, user_id=1)
+    text = reports.generate_daily_summary(logs, [], [])
+    assert "ماساژ" in text
+    assert "آروم" in text
+
+
+def test_daily_summary_with_heater():
+    db.insert_log(user_id=1, heater_hours=2.5)
+    logs = db.get_recent_logs(10, user_id=1)
+    text = reports.generate_daily_summary(logs, [], [])
+    assert "گرمکن" in text
+    assert "2.5" in text
+
+
+def test_daily_summary_with_lifting():
+    db.insert_log(user_id=1, heavy_lifting_kg=10.0)
+    logs = db.get_recent_logs(10, user_id=1)
+    text = reports.generate_daily_summary(logs, [], [])
+    assert "سنگین" in text
+    assert "10" in text
+
+
+def test_daily_summary_half_smoke_count():
+    db.insert_log(user_id=1, smoke_count=0.5)
+    db.insert_log(user_id=1, smoke_count=0.5)
+    db.insert_log(user_id=1, smoke_count=0.5)
+    logs = db.get_recent_logs(10, user_id=1)
+    text = reports.generate_daily_summary(logs, [], [])
+    assert "سیگار" in text
+    assert "1.5" in text
+
+
+# ── Weekly/monthly reports with decimal smoke count ──────────────────────────
+
+def test_weekly_report_half_smoke_display():
+    db.insert_log(user_id=1, smoke_count=0.5, back_pain=5)
+    db.insert_log(user_id=1, smoke_count=0.5)
+    logs = db.get_recent_logs(50, user_id=1)
+    text = reports.generate_weekly_report(logs, [], [], [])
+    assert "1 نخ" in text
+
+
+def test_weekly_report_with_phone_hours():
+    db.insert_log(user_id=1, phone_hours=4.0, computer_hours=6.0)
+    logs = db.get_recent_logs(50, user_id=1)
+    text = reports.generate_weekly_report(logs, [], [], [])
+    assert "گوشی" in text
+    assert "سیستم" in text
+
+
+# ── Correlations with new fields ─────────────────────────────────────────────
+
+def test_correlations_with_phone_hours():
+    for i in range(10):
+        phone = 8 if i % 2 == 0 else 1
+        headache = 9 if i % 2 == 0 else 1
+        db.insert_log(
+            user_id=1,
+            phone_hours=phone,
+            headache=headache,
+            timestamp=datetime(2026, 3, i + 1, 12, 0),
+        )
+    logs = db.get_recent_logs(50, user_id=1)
+    insights = reports.compute_correlations(logs)
+    found_phone = any("گوشی" in i for i in insights)
+    assert found_phone or any("الگو" in i or "🤔" in i for i in insights)
+
+
+# ── Chart generation with new fields ─────────────────────────────────────────
+
+def test_generate_trend_chart_with_phone_hours():
+    db.insert_log(user_id=1, phone_hours=3.0, timestamp=datetime(2026, 3, 1, 12, 0))
+    db.insert_log(user_id=1, phone_hours=5.0, timestamp=datetime(2026, 3, 2, 12, 0))
+    logs = db.get_logs_by_date_range(1, "2026-03-01", "2026-03-03")
+    result = reports.generate_trend_chart(logs, ["phone_hours"])
+    if reports.MATPLOTLIB_AVAILABLE:
+        assert isinstance(result, bytes)

@@ -91,4 +91,4 @@ echo ""
 echo "Setup complete. Launching management TUI..."
 echo ""
 
-exec python manage.py </dev/tty
+exec python manage.py

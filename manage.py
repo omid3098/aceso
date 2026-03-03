@@ -12,6 +12,16 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# When launched via `curl | bash`, stdin is the pipe (EOF).
+# Reopen stdin from the controlling terminal so the interactive TUI works.
+if not sys.stdin.isatty():
+    try:
+        sys.stdin = open("/dev/tty", "r")
+    except OSError:
+        print("ERROR: No interactive terminal found. Run manage.py directly:", file=sys.stderr)
+        print(f"  cd {PROJECT_ROOT} && source venv/bin/activate && python manage.py", file=sys.stderr)
+        sys.exit(1)
 ENV_FILE = PROJECT_ROOT / ".env"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 REQUIREMENTS = PROJECT_ROOT / "requirements.txt"

@@ -3,6 +3,7 @@
 TUI for Health Tracker Bot: install deps, config, systemd, view logs, git update.
 English only. Uses rich for UI.
 """
+import io
 import os
 import subprocess
 import sys
@@ -37,6 +38,13 @@ def main():
             print(f"  cd {PROJECT_ROOT} && source venv/bin/activate && python manage.py", file=sys.stderr)
             sys.exit(1)
 
+    if hasattr(sys.stdin, 'reconfigure'):
+        sys.stdin.reconfigure(errors='replace')
+    elif sys.stdin.encoding != 'utf-8':
+        sys.stdin = io.TextIOWrapper(
+            sys.stdin.buffer, encoding='utf-8', errors='replace'
+        )
+
     if not _RICH_AVAILABLE:
         print("Missing dependency: run  pip install rich  then run this script again.", file=sys.stderr)
         sys.exit(1)
@@ -51,7 +59,11 @@ def main():
         console.print("  4. View live logs")
         console.print("  5. Update from Git")
         console.print("  0. Exit")
-        choice = Prompt.ask("\nChoice", default="0").strip()
+        try:
+            choice = Prompt.ask("\nChoice", default="0").strip()
+        except UnicodeDecodeError:
+            console.print("[red]Input error (encoding issue). Try again.[/red]")
+            continue
 
         if choice == "0":
             console.print("Goodbye.")

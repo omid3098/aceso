@@ -115,6 +115,22 @@ def _avg(values: list) -> Optional[float]:
     return round(sum(nums) / len(nums), 1) if nums else None
 
 
+def _collect_for_report(rows: list, field: str) -> list:
+    """For cumulative fields: sum per day, return daily totals for averaging.
+    For non-cumulative: return all values for averaging."""
+    if field in _CUMULATIVE_FIELDS:
+        by_day = defaultdict(list)
+        for r in rows:
+            val = _get_val(r, field)
+            if val is not None:
+                ts = _get_val(r, "timestamp") or ""
+                day = ts[:10] if len(str(ts)) >= 10 else ""
+                if day:
+                    by_day[day].append(float(val))
+        return [sum(vals) for vals in by_day.values()]
+    return [_get_val(r, field) for r in rows if _get_val(r, field) is not None]
+
+
 def _pearson_r(x: list[float], y: list[float]) -> Optional[float]:
     """Compute Pearson correlation coefficient. Returns None if insufficient data."""
     if len(x) != len(y) or len(x) < 5:
@@ -129,6 +145,8 @@ def _pearson_r(x: list[float], y: list[float]) -> Optional[float]:
         return None
     return round(num / (den_x * den_y), 2)
 
+
+_CUMULATIVE_FIELDS = {"sitting_hours", "phone_hours", "computer_hours", "knitting_hours", "heater_hours"}
 
 _REPORT_FIELDS = [
     ("sleep_quality", "😴 خواب"),
@@ -159,13 +177,10 @@ def generate_weekly_report(
 ) -> str:
     """Return a formatted text report comparing this week to the previous."""
 
-    def collect(rows, field):
-        return [_get_val(r, field) for r in rows if _get_val(r, field) is not None]
-
     lines = ["📊 <b>گزارش هفتگی</b>\n"]
     for key, label in _REPORT_FIELDS:
-        curr_avg = _avg(collect(logs, key))
-        prev_avg = _avg(collect(prev_logs, key))
+        curr_avg = _avg(_collect_for_report(logs, key))
+        prev_avg = _avg(_collect_for_report(prev_logs, key))
         arrow = _trend_arrow(curr_avg, prev_avg)
         curr_str = str(curr_avg) if curr_avg is not None else "—"
         lines.append(f"{label}: {curr_str}{arrow}")
@@ -193,16 +208,13 @@ def generate_monthly_report(
 ) -> str:
     """Return a formatted text report comparing this month to the previous."""
 
-    def collect(rows, field):
-        return [_get_val(r, field) for r in rows if _get_val(r, field) is not None]
-
     if not logs:
         return "📆 داده‌ای برای این ماه ثبت نشده."
 
     lines = ["📆 <b>گزارش ماهانه</b>\n"]
     for key, label in _REPORT_FIELDS:
-        curr_avg = _avg(collect(logs, key))
-        prev_avg = _avg(collect(prev_logs, key))
+        curr_avg = _avg(_collect_for_report(logs, key))
+        prev_avg = _avg(_collect_for_report(prev_logs, key))
         arrow = _trend_arrow(curr_avg, prev_avg)
         curr_str = str(curr_avg) if curr_avg is not None else "—"
         lines.append(f"{label}: {curr_str}{arrow}")
@@ -260,6 +272,7 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
     ]
 
     latest = {}
+    totals = {}
     total_smokes = 0
     total_tea = 0
     total_water_glasses = 0.0
@@ -270,8 +283,15 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
             if val is not None:
                 if key == "smoke_count":
                     total_smokes += val
+                elif key in _CUMULATIVE_FIELDS:
+                    totals[key] = totals.get(key, 0) + val
                 else:
                     latest[key] = val
+        for key in _CUMULATIVE_FIELDS:
+            if key not in (f[0] for f in fields):
+                val = _get_val(log, key)
+                if val is not None:
+                    totals[key] = totals.get(key, 0) + val
         bp = _get_val(log, "back_patch")
         if bp:
             total_patches += bp
@@ -291,6 +311,10 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
             total_water = water_from_log + total_water_glasses
             display = int(total_water) if total_water == int(total_water) else total_water
             lines.append(f"{label}: {display}{unit}")
+        elif key in _CUMULATIVE_FIELDS and key in totals:
+            val = totals[key]
+            display = int(val) if val == int(val) else val
+            lines.append(f"{label}: {display}{unit}")
         elif key in latest:
             lines.append(f"{label}: {latest[key]}{unit}")
 
@@ -305,9 +329,10 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
         _massage_map = {"firm": "💪 محکم", "gentle": "🤲 آروم", "none": "❌ نبوده"}
         lines.append(f"💆 ماساژ: {_massage_map.get(massage_vals[-1], massage_vals[-1])}")
 
-    heater_vals = [_get_val(log, "heater_hours") for log in logs if _get_val(log, "heater_hours") is not None]
-    if heater_vals:
-        lines.append(f"🔌 گرمکن: {heater_vals[-1]} ساعت")
+    if "heater_hours" in totals:
+        h = totals["heater_hours"]
+        h_display = int(h) if h == int(h) else h
+        lines.append(f"🔌 گرمکن: {h_display} ساعت")
 
     lifting_vals = [_get_val(log, "heavy_lifting_kg") for log in logs if _get_val(log, "heavy_lifting_kg") is not None]
     if lifting_vals:
@@ -325,9 +350,9 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
     if ovul_vals:
         lines.append(f"🥚 تخمک‌گذاری: {'بله' if ovul_vals[-1] else 'نه'}")
 
-    total_knitting = sum(_get_val(log, "knitting_hours") for log in logs if _get_val(log, "knitting_hours") is not None)
-    if total_knitting > 0:
-        k_display = int(total_knitting) if total_knitting == int(total_knitting) else total_knitting
+    if "knitting_hours" in totals and totals["knitting_hours"] > 0:
+        k = totals["knitting_hours"]
+        k_display = int(k) if k == int(k) else k
         lines.append(f"🧶 بافتنی: {k_display} ساعت")
 
     note_items = [_get_val(log, "notes") for log in logs if _get_val(log, "notes")]
@@ -373,7 +398,10 @@ def compute_correlations(logs: list) -> list[str]:
 
     day_avgs: dict[str, dict[str, float]] = {}
     for day, fields in daily.items():
-        day_avgs[day] = {f: sum(v) / len(v) for f, v in fields.items()}
+        day_avgs[day] = {
+            f: sum(v) if f in _CUMULATIVE_FIELDS else sum(v) / len(v)
+            for f, v in fields.items()
+        }
 
     insights: list[str] = []
 

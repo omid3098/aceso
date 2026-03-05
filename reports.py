@@ -24,12 +24,15 @@ FIELD_LABELS = {
     "sleep_quality": "Sleep Quality",
     "sleep_hours": "Sleep (h)",
     "water_amount": "Water",
+    "water_glasses": "Water (quick)",
+    "tea_count": "Tea",
     "smoke_count": "Cigarettes",
     "caffeine_amount": "Caffeine",
     "screen_hours": "Screen (h)",
     "phone_hours": "Phone (h)",
     "computer_hours": "Computer (h)",
     "sitting_hours": "Sitting (h)",
+    "knitting_hours": "Knitting (h)",
     "heater_hours": "Heater (h)",
     "heavy_lifting_kg": "Lifting (kg)",
 }
@@ -41,12 +44,15 @@ FIELD_LABELS_FA = {
     "sleep_quality": "خواب",
     "sleep_hours": "مدت خواب",
     "water_amount": "آب",
+    "water_glasses": "آب (دکمه)",
+    "tea_count": "چای",
     "smoke_count": "سیگار",
     "caffeine_amount": "کافئین",
     "screen_hours": "صفحه‌نمایش",
     "phone_hours": "گوشی",
     "computer_hours": "سیستم",
     "sitting_hours": "نشستن",
+    "knitting_hours": "بافتنی",
     "heater_hours": "گرمکن",
     "heavy_lifting_kg": "بلند کردن سنگین",
 }
@@ -135,6 +141,7 @@ _REPORT_FIELDS = [
     ("phone_hours", "📱 گوشی"),
     ("computer_hours", "💻 سیستم"),
     ("sitting_hours", "🪑 نشستن"),
+    ("knitting_hours", "🧶 بافتنی"),
 ]
 
 
@@ -206,6 +213,17 @@ def generate_monthly_report(
     smoke_display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
     lines.append(f"🚬 سیگار: {smoke_display} نخ{smoke_arrow}")
 
+    total_tea = sum(_get_val(r, "tea_count") for r in logs if _get_val(r, "tea_count"))
+    prev_tea = sum(_get_val(r, "tea_count") for r in prev_logs if _get_val(r, "tea_count"))
+    tea_arrow = _trend_arrow(total_tea, prev_tea)
+    lines.append(f"🍵 چای: {total_tea} لیوان{tea_arrow}")
+
+    total_water_glasses = sum(_get_val(r, "water_glasses") for r in logs if _get_val(r, "water_glasses"))
+    prev_water_glasses = sum(_get_val(r, "water_glasses") for r in prev_logs if _get_val(r, "water_glasses"))
+    water_glasses_arrow = _trend_arrow(total_water_glasses, prev_water_glasses)
+    wg_display = int(total_water_glasses) if total_water_glasses == int(total_water_glasses) else total_water_glasses
+    lines.append(f"💧 آب (دکمه): {wg_display} لیوان{water_glasses_arrow}")
+
     days_logged = len(set(
         _get_val(r, "timestamp")[:10] for r in logs if _get_val(r, "timestamp")
     ))
@@ -243,6 +261,8 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
 
     latest = {}
     total_smokes = 0
+    total_tea = 0
+    total_water_glasses = 0.0
     total_patches = 0
     for log in logs:
         for key, _, _ in fields:
@@ -255,13 +275,27 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
         bp = _get_val(log, "back_patch")
         if bp:
             total_patches += bp
+        t = _get_val(log, "tea_count")
+        if t is not None:
+            total_tea += t
+        wg = _get_val(log, "water_glasses")
+        if wg is not None:
+            total_water_glasses += float(wg)
 
     for key, label, unit in fields:
         if key == "smoke_count":
             display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
             lines.append(f"{label}: {display}{unit}")
+        elif key == "water_amount" and (key in latest or total_water_glasses > 0):
+            water_from_log = latest.get("water_amount") or 0
+            total_water = water_from_log + total_water_glasses
+            display = int(total_water) if total_water == int(total_water) else total_water
+            lines.append(f"{label}: {display}{unit}")
         elif key in latest:
             lines.append(f"{label}: {latest[key]}{unit}")
+
+    if total_tea > 0:
+        lines.append(f"🍵 چای: {total_tea} لیوان")
 
     if total_patches:
         lines.append(f"🩹 چسب کمر: {total_patches} بار")
@@ -286,6 +320,15 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
     period_vals = [_get_val(log, "period_status") for log in logs if _get_val(log, "period_status") is not None]
     if period_vals:
         lines.append(f"🔴 پریود: {'بله' if period_vals[-1] else 'نه'}")
+
+    ovul_vals = [_get_val(log, "ovulation_status") for log in logs if _get_val(log, "ovulation_status") is not None]
+    if ovul_vals:
+        lines.append(f"🥚 تخمک‌گذاری: {'بله' if ovul_vals[-1] else 'نه'}")
+
+    total_knitting = sum(_get_val(log, "knitting_hours") for log in logs if _get_val(log, "knitting_hours") is not None)
+    if total_knitting > 0:
+        k_display = int(total_knitting) if total_knitting == int(total_knitting) else total_knitting
+        lines.append(f"🧶 بافتنی: {k_display} ساعت")
 
     note_items = [_get_val(log, "notes") for log in logs if _get_val(log, "notes")]
     if note_items:
@@ -322,7 +365,8 @@ def compute_correlations(logs: list) -> list[str]:
         for field in ("back_pain", "headache", "peace_level", "sleep_quality",
                       "sleep_hours", "sitting_hours", "phone_hours",
                       "computer_hours", "screen_hours",
-                      "water_amount", "caffeine_amount", "smoke_count"):
+                      "water_amount", "water_glasses", "tea_count",
+                      "caffeine_amount", "smoke_count", "knitting_hours"):
             val = _get_val(log, field)
             if val is not None:
                 daily[day][field].append(float(val))
@@ -346,8 +390,12 @@ def compute_correlations(logs: list) -> list[str]:
         ("sleep_hours", "back_pain", "مدت خواب", "کمردرد"),
         ("sleep_hours", "headache", "مدت خواب", "سردرد"),
         ("water_amount", "headache", "آب", "سردرد"),
+        ("water_glasses", "headache", "آب (دکمه)", "سردرد"),
+        ("tea_count", "headache", "چای", "سردرد"),
         ("caffeine_amount", "headache", "کافئین", "سردرد"),
         ("smoke_count", "peace_level", "سیگار", "آرامش"),
+        ("knitting_hours", "back_pain", "بافتنی", "کمردرد"),
+        ("knitting_hours", "peace_level", "بافتنی", "آرامش"),
         ("peace_level", "back_pain", "آرامش", "کمردرد"),
     ]
 

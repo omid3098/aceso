@@ -80,6 +80,10 @@ _MIGRATIONS = {
         "heater_hours": "REAL",
         "massage_type": "TEXT",
         "heavy_lifting_kg": "REAL",
+        "tea_count": "INTEGER",
+        "water_glasses": "REAL",
+        "ovulation_status": "INTEGER",
+        "knitting_hours": "REAL",
     },
 }
 
@@ -131,12 +135,16 @@ def insert_log(
     computer_hours: Optional[float] = None,
     food_details: Optional[str] = None,
     period_status: Optional[int] = None,
+    ovulation_status: Optional[int] = None,
     stress_level: Optional[int] = None,
     anxiety_level: Optional[int] = None,
     back_patch: Optional[int] = None,
     heater_hours: Optional[float] = None,
     massage_type: Optional[str] = None,
     heavy_lifting_kg: Optional[float] = None,
+    tea_count: Optional[int] = None,
+    water_glasses: Optional[float] = None,
+    knitting_hours: Optional[float] = None,
     notes: Optional[str] = None,
     timestamp: Optional[datetime] = None,
 ) -> int:
@@ -150,18 +158,20 @@ def insert_log(
                 sleep_quality, sleep_hours, water_amount, smoke_count,
                 caffeine_amount, sitting_hours, screen_hours,
                 phone_hours, computer_hours,
-                food_details, period_status, stress_level, anxiety_level,
+                food_details, period_status, ovulation_status, stress_level, anxiety_level,
                 back_patch, heater_hours, massage_type, heavy_lifting_kg,
+                tea_count, water_glasses, knitting_hours,
                 notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ts, user_id, back_pain, headache, peace_level,
                 sleep_quality, sleep_hours, water_amount, smoke_count,
                 caffeine_amount, sitting_hours, screen_hours,
                 phone_hours, computer_hours,
-                food_details, period_status, stress_level, anxiety_level,
+                food_details, period_status, ovulation_status, stress_level, anxiety_level,
                 back_patch, heater_hours, massage_type, heavy_lifting_kg,
+                tea_count, water_glasses, knitting_hours,
                 notes,
             ),
         )
@@ -218,6 +228,30 @@ def get_today_patch_count(user_id: int, today_str: str) -> int:
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(back_patch), 0) as total "
+            "FROM logs WHERE user_id = ? AND timestamp LIKE ?",
+            (user_id, f"{today_str}%"),
+        )
+        return cur.fetchone()["total"]
+
+
+def get_today_tea_count(user_id: int, today_str: str) -> int:
+    """Sum of tea_count for a given day (today_str like '2026-03-01')."""
+    init_db()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT COALESCE(SUM(tea_count), 0) as total "
+            "FROM logs WHERE user_id = ? AND timestamp LIKE ?",
+            (user_id, f"{today_str}%"),
+        )
+        return cur.fetchone()["total"]
+
+
+def get_today_water_glasses(user_id: int, today_str: str) -> float:
+    """Sum of water_glasses for a given day (today_str like '2026-03-01')."""
+    init_db()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT COALESCE(SUM(water_glasses), 0) as total "
             "FROM logs WHERE user_id = ? AND timestamp LIKE ?",
             (user_id, f"{today_str}%"),
         )

@@ -546,7 +546,8 @@ def test_migration_adds_new_columns():
         cursor = conn.execute("PRAGMA table_info(logs)")
         col_names = {row[1] for row in cursor.fetchall()}
     for col in ("phone_hours", "computer_hours", "back_patch",
-                "heater_hours", "massage_type", "heavy_lifting_kg"):
+                "heater_hours", "massage_type", "heavy_lifting_kg",
+                "tea_count", "water_glasses", "ovulation_status", "knitting_hours"):
         assert col in col_names, f"Missing column: {col}"
 
 
@@ -606,3 +607,48 @@ def test_get_today_patch_count_sums():
 def test_get_today_patch_count_zero_when_none():
     db.init_db()
     assert db.get_today_patch_count(1, "2026-03-01") == 0
+
+
+def test_get_today_tea_count_sums():
+    db.init_db()
+    db.insert_log(user_id=1, tea_count=1, timestamp=datetime(2026, 3, 1, 8, 0))
+    db.insert_log(user_id=1, tea_count=1, timestamp=datetime(2026, 3, 1, 14, 0))
+    db.insert_log(user_id=1, tea_count=2, timestamp=datetime(2026, 3, 2, 8, 0))
+    assert db.get_today_tea_count(1, "2026-03-01") == 2
+    assert db.get_today_tea_count(1, "2026-03-02") == 2
+
+
+def test_get_today_tea_count_zero_when_none():
+    db.init_db()
+    assert db.get_today_tea_count(1, "2026-03-01") == 0
+
+
+def test_get_today_water_glasses_sums():
+    db.init_db()
+    db.insert_log(user_id=1, water_glasses=0.5, timestamp=datetime(2026, 3, 1, 8, 0))
+    db.insert_log(user_id=1, water_glasses=0.5, timestamp=datetime(2026, 3, 1, 14, 0))
+    db.insert_log(user_id=1, water_glasses=1.0, timestamp=datetime(2026, 3, 2, 8, 0))
+    assert db.get_today_water_glasses(1, "2026-03-01") == pytest.approx(1.0)
+    assert db.get_today_water_glasses(1, "2026-03-02") == pytest.approx(1.0)
+
+
+def test_get_today_water_glasses_zero_when_none():
+    db.init_db()
+    assert db.get_today_water_glasses(1, "2026-03-01") == 0
+
+
+def test_insert_log_tea_water_ovulation_knitting():
+    db.init_db()
+    row_id = db.insert_log(
+        user_id=1,
+        tea_count=2,
+        water_glasses=1.5,
+        ovulation_status=1,
+        knitting_hours=3.0,
+    )
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM logs WHERE id=?", (row_id,)).fetchone()
+    assert row["tea_count"] == 2
+    assert row["water_glasses"] == pytest.approx(1.5)
+    assert row["ovulation_status"] == 1
+    assert row["knitting_hours"] == pytest.approx(3.0)

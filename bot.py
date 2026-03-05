@@ -91,7 +91,7 @@ FLOWS: dict[str, list[str]] = {
         "sleep_quality", "sleep_hours", "back_pain", "headache",
         "peace_level",
         "water_amount", "food_details", "caffeine_amount",
-        "phone_hours", "computer_hours", "sitting_hours", "notes",
+        "phone_hours", "computer_hours", "sitting_hours", "knitting_hours", "notes",
     ],
     "medication": ["med_name", "med_dosage"],
     "exercise": ["exercise_type", "exercise_duration"],
@@ -99,7 +99,7 @@ FLOWS: dict[str, list[str]] = {
     "heater": ["heater_hours"],
     "massage": ["massage_type"],
     "lifting": ["lifting_weight"],
-    "period": ["period_status"],
+    "period": ["period_status", "ovulation_status"],
 }
 
 QUESTIONS: dict[str, str] = {
@@ -114,7 +114,9 @@ QUESTIONS: dict[str, str] = {
     "phone_hours":      "📱 <b>چند ساعت گوشی دستت بوده؟</b>",
     "computer_hours":   "💻 <b>چند ساعت پای سیستم بودی؟</b>",
     "sitting_hours":    "🪑 <b>چند ساعت نشستی؟</b>",
+    "knitting_hours":   "🧶 <b>چند ساعت بافتنی کردی؟</b>",
     "period_status":    "🔴 <b>پریود هستی؟</b>",
+    "ovulation_status": "🥚 <b>تخمک‌گذاری داری؟</b>",
     "notes":            "📝 <b>یادداشت یا نکته‌ای داری؟</b>\n(بنویس یا رد شو)",
     "med_name":         "💊 <b>چه دارویی مصرف کردی؟</b>",
     "med_dosage":       "💊 <b>دوز / توضیحات؟</b>\n(بنویس یا رد شو)",
@@ -137,7 +139,9 @@ STEP_LABELS: dict[str, str] = {
     "phone_hours": "📱 گوشی",
     "computer_hours": "💻 سیستم",
     "sitting_hours": "🪑 نشستن",
+    "knitting_hours": "🧶 بافتنی",
     "period_status": "🔴 پریود",
+    "ovulation_status": "🥚 تخمک‌گذاری",
     "notes": "📝 یادداشت",
     "heater_hours": "🔌 گرمکن",
     "massage_type": "💆 ماساژ",
@@ -275,7 +279,9 @@ def _more_menu_kb() -> types.InlineKeyboardMarkup:
         types.InlineKeyboardButton("🔌 گرمکن برقی", callback_data="more_heater"),
         types.InlineKeyboardButton("💆 ماساژ", callback_data="more_massage"),
         types.InlineKeyboardButton("🏋️ بلند کردن سنگین", callback_data="more_lifting"),
-        types.InlineKeyboardButton("🔴 پریود", callback_data="more_period"),
+        types.InlineKeyboardButton("🔴 پریود / تخمک‌گذاری", callback_data="more_period"),
+        types.InlineKeyboardButton("🩹 چسب کمر", callback_data="more_patch"),
+        types.InlineKeyboardButton("💊 دارو", callback_data="more_medication"),
     )
     return markup
 
@@ -312,13 +318,13 @@ def main_menu_keyboard() -> types.ReplyKeyboardMarkup:
     markup.row(
         types.KeyboardButton("🔥 درد الان"),
         types.KeyboardButton("🚬 سیگار"),
-        types.KeyboardButton("🩹 چسب کمر"),
     )
     markup.row(
-        types.KeyboardButton("💊 دارو"),
+        types.KeyboardButton("🍵 چای"),
+        types.KeyboardButton("💧 آب"),
         types.KeyboardButton("🏃 ورزش"),
-        types.KeyboardButton("📋 بیشتر"),
     )
+    markup.row(types.KeyboardButton("📋 بیشتر"))
     return markup
 
 
@@ -376,9 +382,9 @@ def ask_question(chat_id: int, step: str, user_id: int = 0) -> None:
         bot.send_message(chat_id, question, reply_markup=_count_kb(10))
     elif step == "water_amount":
         bot.send_message(chat_id, question, reply_markup=_count_kb(20))
-    elif step in ("phone_hours", "computer_hours", "sitting_hours", "heater_hours"):
+    elif step in ("phone_hours", "computer_hours", "sitting_hours", "knitting_hours", "heater_hours"):
         bot.send_message(chat_id, question, reply_markup=_hours_kb())
-    elif step == "period_status":
+    elif step in ("period_status", "ovulation_status"):
         bot.send_message(chat_id, question, reply_markup=_yesno_kb())
     elif step == "med_name":
         bot.send_message(chat_id, question, reply_markup=_med_name_kb())
@@ -406,7 +412,7 @@ def _format_confirmation(data: dict, flow: str) -> str:
     for step in steps:
         label = STEP_LABELS.get(step, step)
         val = data.get(step)
-        if step == "period_status":
+        if step in ("period_status", "ovulation_status"):
             display = "بله" if val == 1 else ("نه" if val == 0 else "—")
             lines.append(f"{label}: {display}")
         elif step == "massage_type":
@@ -528,12 +534,14 @@ def _finish_flow(user_id: int, chat_id: int, data: dict, flow: str) -> None:
             reply_markup=main_menu_keyboard(),
         )
     elif flow == "period":
-        val = data.get("period_status")
-        database.insert_log(user_id=user_id, period_status=val)
-        display = "بله" if val == 1 else "نه"
+        period_val = data.get("period_status")
+        ovul_val = data.get("ovulation_status")
+        database.insert_log(user_id=user_id, period_status=period_val, ovulation_status=ovul_val)
+        period_display = "بله" if period_val == 1 else "نه"
+        ovul_display = "بله" if ovul_val == 1 else ("نه" if ovul_val == 0 else "—")
         bot.send_message(
             chat_id,
-            f"🔴 <b>پریود ثبت شد: {display}</b>",
+            f"🔴 <b>پریود ثبت شد: {period_display}</b>\n🥚 <b>تخمک‌گذاری: {ovul_display}</b>",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -578,13 +586,15 @@ def is_admin(user_id: int) -> bool:
 
 
 def _format_last_log(row, user_id: int) -> str:
-    period_display = "بله" if row["period_status"] else ("نه" if row["period_status"] is not None else "—")
-
     def _v(key):
         try:
             return row[key]
         except (IndexError, KeyError):
             return None
+
+    period_display = "بله" if _v("period_status") == 1 else ("نه" if _v("period_status") == 0 else "—")
+    ovul = _v("ovulation_status")
+    ovulation_display = "بله" if ovul == 1 else ("نه" if ovul == 0 else "—")
 
     phone = _v("phone_hours")
     computer = _v("computer_hours")
@@ -603,6 +613,7 @@ def _format_last_log(row, user_id: int) -> str:
         f"🤕 سردرد: {row['headache'] or '—'}/10",
         f"🧘 آرامش: {row['peace_level'] or '—'}/10\n",
         f"💧 آب: {row['water_amount'] or '—'} لیوان",
+        f"🍵 چای: {_v('tea_count') or '—'} لیوان",
         f"🚬 سیگار: {row['smoke_count'] or '—'} نخ",
         f"☕ کافئین: {row['caffeine_amount'] or '—'}",
     ]
@@ -614,8 +625,12 @@ def _format_last_log(row, user_id: int) -> str:
         lines.append(f"📱 صفحه‌نمایش: {screen} ساعت")
 
     lines.append(f"🪑 نشستن: {row['sitting_hours'] or '—'} ساعت")
+    knitting = _v("knitting_hours")
+    if knitting is not None:
+        lines.append(f"🧶 بافتنی: {knitting} ساعت")
     lines.append(f"🍽 غذا: {row['food_details'] or '—'}")
     lines.append(f"🔴 پریود: {period_display}")
+    lines.append(f"🥚 تخمک‌گذاری: {ovulation_display}")
 
     if back_patch:
         lines.append(f"🩹 چسب کمر: {back_patch} بار")
@@ -865,6 +880,35 @@ def handle_cigarette(message: types.Message) -> None:
     )
 
 
+@bot.message_handler(func=lambda m: m.text == "🍵 چای")
+def handle_tea(message: types.Message) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    uid = message.from_user.id
+    database.insert_log(user_id=uid, tea_count=1)
+    today_total = database.get_today_tea_count(uid, _today_str(uid))
+    bot.send_message(
+        message.chat.id,
+        f"🍵 <b>یک لیوان چای ثبت شد.</b>\nامروز: {today_total} لیوان",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@bot.message_handler(func=lambda m: m.text == "💧 آب")
+def handle_water(message: types.Message) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    uid = message.from_user.id
+    database.insert_log(user_id=uid, water_glasses=0.5)
+    today_total = database.get_today_water_glasses(uid, _today_str(uid))
+    display = int(today_total) if today_total == int(today_total) else today_total
+    bot.send_message(
+        message.chat.id,
+        f"💧 <b>نیم لیوان آب ثبت شد.</b>\nامروز: {display} لیوان",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
 @bot.message_handler(func=lambda m: m.text == "💊 دارو")
 def handle_medication(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
@@ -881,20 +925,6 @@ def handle_exercise(message: types.Message) -> None:
     user_states[message.from_user.id] = {"flow": "exercise", "step": "exercise_type", "data": {}}
     _persist_state(message.from_user.id)
     ask_question(message.chat.id, "exercise_type", message.from_user.id)
-
-
-@bot.message_handler(func=lambda m: m.text == "🩹 چسب کمر")
-def handle_back_patch(message: types.Message) -> None:
-    if not is_admin(message.from_user.id):
-        return
-    uid = message.from_user.id
-    database.insert_log(user_id=uid, back_patch=1)
-    today_total = database.get_today_patch_count(uid, _today_str(uid))
-    bot.send_message(
-        message.chat.id,
-        f"🩹 <b>چسب کمر ثبت شد.</b>\nامروز: {today_total} بار",
-        reply_markup=main_menu_keyboard(),
-    )
 
 
 @bot.message_handler(func=lambda m: m.text == "📋 بیشتر")
@@ -1076,9 +1106,18 @@ def handle_more_callback(call: types.CallbackQuery) -> None:
         "massage": ("massage", "massage_type"),
         "lifting": ("lifting", "lifting_weight"),
         "period": ("period", "period_status"),
+        "medication": ("medication", "med_name"),
     }
 
-    if action in flow_map:
+    if action == "patch":
+        database.insert_log(user_id=uid, back_patch=1)
+        today_total = database.get_today_patch_count(uid, _today_str(uid))
+        bot.send_message(
+            cid,
+            f"🩹 <b>چسب کمر ثبت شد.</b>\nامروز: {today_total} بار",
+            reply_markup=main_menu_keyboard(),
+        )
+    elif action in flow_map:
         flow_name, first_step = flow_map[action]
         user_states[uid] = {"flow": flow_name, "step": first_step, "data": {}}
         _persist_state(uid)
@@ -1198,7 +1237,7 @@ def _send_chart(chat_id: int, user_id: int, days: int = 7) -> None:
     )
     lifestyle_chart = reports.generate_trend_chart(
         logs,
-        ["phone_hours", "computer_hours", "sitting_hours", "water_amount"],
+        ["phone_hours", "computer_hours", "sitting_hours", "water_amount", "knitting_hours"],
         title=f"Lifestyle — last {days} days",
     )
 
@@ -1242,6 +1281,12 @@ def _send_history(chat_id: int, user_id: int, days: int = 7) -> None:
             parts.append(f"🚬{log['smoke_count']}")
         if log["water_amount"] is not None:
             parts.append(f"💧{log['water_amount']}")
+        if _hv(log, "tea_count"):
+            parts.append(f"🍵{_hv(log, 'tea_count')}")
+        if _hv(log, "water_glasses") is not None:
+            parts.append(f"💧+{_hv(log, 'water_glasses')}")
+        if _hv(log, "knitting_hours") is not None:
+            parts.append(f"🧶{_hv(log, 'knitting_hours')}")
         if _hv(log, "back_patch"):
             parts.append("🩹")
         if _hv(log, "massage_type"):

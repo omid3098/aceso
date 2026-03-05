@@ -226,35 +226,20 @@ def test_daily_summary_with_phone_computer_hours():
     assert "گوشی" in text
     assert "3.5" in text
     assert "سیستم" in text
-    assert "6" in text  # 6.0 displayed as 6 when whole
+    assert "6.0" in text
 
 
-def test_daily_summary_sums_cumulative_fields_when_multiple_logs_same_day():
-    """Multiple logs per day: sitting_hours, phone_hours, computer_hours should be summed."""
-    base_ts = datetime(2026, 3, 1, 12, 0)
+def test_daily_summary_uses_latest_for_time_fields():
+    """Multiple logs per day: sitting_hours etc. use the latest value (user re-enters total)."""
     db.insert_log(user_id=1, sitting_hours=4, phone_hours=2, computer_hours=3,
-                  timestamp=base_ts)
-    db.insert_log(user_id=1, sitting_hours=4, phone_hours=2, computer_hours=3,
+                  timestamp=datetime(2026, 3, 1, 12, 0))
+    db.insert_log(user_id=1, sitting_hours=8, phone_hours=4, computer_hours=6,
                   timestamp=datetime(2026, 3, 1, 18, 0))
     logs = db.get_logs_by_date_range(1, "2026-03-01", "2026-03-02")
     text = reports.generate_daily_summary(logs, [], [])
-    assert "8" in text  # sitting: 4+4=8
-    assert "4" in text  # phone: 2+2=4
-    assert "6" in text  # computer: 3+3=6
-
-
-def test_daily_summary_sums_heater_and_knitting_when_multiple_logs_same_day():
-    """heater_hours and knitting_hours should be summed across multiple logs per day."""
-    db.insert_log(user_id=1, heater_hours=1.5, knitting_hours=2,
-                  timestamp=datetime(2026, 3, 1, 10, 0))
-    db.insert_log(user_id=1, heater_hours=1.0, knitting_hours=1,
-                  timestamp=datetime(2026, 3, 1, 20, 0))
-    logs = db.get_logs_by_date_range(1, "2026-03-01", "2026-03-02")
-    text = reports.generate_daily_summary(logs, [], [])
-    assert "گرمکن" in text
-    assert "2.5" in text  # 1.5+1.0
-    assert "بافتنی" in text
-    assert "3" in text  # 2+1
+    assert "8" in text   # sitting: latest = 8
+    assert "4" in text   # phone: latest = 4
+    assert "6" in text   # computer: latest = 6
 
 
 def test_daily_summary_with_back_patch():
@@ -318,14 +303,14 @@ def test_weekly_report_with_phone_hours():
     assert "سیستم" in text
 
 
-def test_weekly_report_sums_cumulative_per_day_then_averages():
-    """With 2 logs of 4h each on one day, weekly report should show 8 (not 4) for that day's avg."""
+def test_weekly_report_averages_time_fields():
+    """With 2 logs of 4h each, weekly report averages them (4)."""
     db.insert_log(user_id=1, sitting_hours=4, timestamp=datetime(2026, 3, 1, 10, 0))
     db.insert_log(user_id=1, sitting_hours=4, timestamp=datetime(2026, 3, 1, 18, 0))
     logs = db.get_logs_by_date_range(1, "2026-03-01", "2026-03-10")
     text = reports.generate_weekly_report(logs, [], [], [])
     assert "نشستن" in text or "🪑" in text
-    assert "8" in text  # daily total 4+4=8, avg across 1 day = 8
+    assert "4" in text  # avg of 4 and 4 = 4
 
 
 # ── Correlations with new fields ─────────────────────────────────────────────

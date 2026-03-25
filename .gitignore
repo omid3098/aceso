@@ -10,6 +10,7 @@ venv/
 env/
 
 # Python
+.coverage
 __pycache__/
 *.py[cod]
 *$py.class
@@ -41,3 +42,4 @@ wheels/
 *.swo
 .DS_Store
 Thumbs.db
+.claude/settings.local.json

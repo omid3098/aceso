@@ -344,6 +344,19 @@ def test_delete_last_log_returns_false_when_empty():
     assert db.delete_last_log(999) is False
 
 
+def test_update_log():
+    db.init_db()
+    log_id = db.insert_log(user_id=1, back_pain=8)
+    assert db.update_log(log_id, back_pain=3)
+    logs = db.get_recent_logs(1, user_id=1)
+    assert logs[0]["back_pain"] == 3
+
+
+def test_update_log_no_kwargs():
+    db.init_db()
+    assert db.update_log(999) is False
+
+
 # ── Medications ───────────────────────────────────────────────────────────────
 
 def test_insert_medication_returns_id():
@@ -497,10 +510,10 @@ def test_backup_db_creates_file(tmp_path):
 def test_backup_rotates(tmp_path):
     db.init_db()
     backup_dir = tmp_path / "backups"
-    for _ in range(10):
+    for _ in range(35):
         db.backup_db(backup_dir)
     backups = list(backup_dir.glob("tracker_*.db"))
-    assert len(backups) <= 7
+    assert len(backups) <= 30
 
 
 # ── Export ────────────────────────────────────────────────────────────────────

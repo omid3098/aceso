@@ -176,6 +176,17 @@ def generate_weekly_report(
     smoke_display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
     lines.append(f"🚬 سیگار: {smoke_display} نخ{smoke_arrow}")
 
+    total_tea = sum(_get_val(r, "tea_count") for r in logs if _get_val(r, "tea_count"))
+    prev_tea = sum(_get_val(r, "tea_count") for r in prev_logs if _get_val(r, "tea_count"))
+    tea_arrow = _trend_arrow(total_tea, prev_tea)
+    lines.append(f"🍵 چای: {total_tea} لیوان{tea_arrow}")
+
+    total_wg = sum(_get_val(r, "water_glasses") for r in logs if _get_val(r, "water_glasses"))
+    prev_wg = sum(_get_val(r, "water_glasses") for r in prev_logs if _get_val(r, "water_glasses"))
+    wg_arrow = _trend_arrow(total_wg, prev_wg)
+    wg_display = int(total_wg) if total_wg == int(total_wg) else total_wg
+    lines.append(f"💧 آب (دکمه): {wg_display} لیوان{wg_arrow}")
+
     if medications:
         lines.append(f"\n💊 دارو: {len(medications)} بار مصرف")
     if exercises:
@@ -399,7 +410,10 @@ def compute_correlations(logs: list) -> list[str]:
         ("peace_level", "back_pain", "آرامش", "کمردرد"),
     ]
 
+    sorted_days = sorted(day_avgs.keys())
+
     for cause, effect, cause_fa, effect_fa in pairs:
+        # Same-day correlation
         x_vals, y_vals = [], []
         for day, avgs in day_avgs.items():
             if cause in avgs and effect in avgs:
@@ -412,6 +426,25 @@ def compute_correlations(logs: list) -> list[str]:
             insights.append(
                 f"📊 {cause_fa} و {effect_fa}: رابطه {strength} {direction} (r={r})"
             )
+
+        # Next-day (lagged) correlation: cause today → effect tomorrow
+        x_lag, y_lag = [], []
+        for i in range(len(sorted_days) - 1):
+            today, tomorrow = sorted_days[i], sorted_days[i + 1]
+            today_avgs = day_avgs[today]
+            tomorrow_avgs = day_avgs[tomorrow]
+            if cause in today_avgs and effect in tomorrow_avgs:
+                x_lag.append(today_avgs[cause])
+                y_lag.append(tomorrow_avgs[effect])
+        r_lag = _pearson_r(x_lag, y_lag)
+        if r_lag is not None and abs(r_lag) >= 0.3:
+            # Only show lagged if it's stronger than same-day, or same-day was not significant
+            if r is None or abs(r) < 0.3 or abs(r_lag) > abs(r):
+                strength = "قوی" if abs(r_lag) >= 0.6 else "متوسط"
+                direction = "مستقیم" if r_lag > 0 else "معکوس"
+                insights.append(
+                    f"📊 {cause_fa} → فردا {effect_fa}: رابطه {strength} {direction} (r={r_lag})"
+                )
 
     if not insights:
         insights.append("🤔 هنوز الگوی مشخصی پیدا نشد. به ثبت داده ادامه بده!")

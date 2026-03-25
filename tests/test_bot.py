@@ -324,6 +324,55 @@ def test_advance_flow_no_state():
     bot.advance_flow(999, 999, 5)  # should not raise
 
 
+def test_advance_flow_log_shows_more_or_finish_after_core(isolated_db, monkeypatch):
+    """After the last core step (peace_level) the user is offered finish early."""
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    bot.user_states[1] = {"flow": "log", "step": "peace_level", "data": {}}
+    bot.advance_flow(1, 1, 7)
+    assert bot.user_states[1]["step"] == "_more_or_finish"
+    sent = bot.bot.send_message.call_args
+    assert "کافیه" in str(sent) or "ادامه" in str(sent) or "بیشتر" in str(sent)
+
+
+def test_advance_flow_log_continue_after_core(isolated_db, monkeypatch):
+    """Choosing 'continue' after core resumes at the next optional step."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [1])
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    monkeypatch.setattr(bot.bot, "answer_callback_query", MagicMock())
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", MagicMock())
+    bot.user_states[1] = {"flow": "log", "step": "_more_or_finish", "data": {"peace_level": 7}}
+    call = _make_callback(1, "flow_continue")
+    bot.handle_more_or_finish(call)
+    core_idx = bot.FLOWS["log"].index(bot.LOG_CORE_LAST_STEP)
+    expected_next = bot.FLOWS["log"][core_idx + 1]
+    assert bot.user_states[1]["step"] == expected_next
+
+
+def test_advance_flow_log_finish_early(isolated_db, monkeypatch):
+    """Choosing 'finish early' after core goes straight to confirmation."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [1])
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    monkeypatch.setattr(bot.bot, "answer_callback_query", MagicMock())
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", MagicMock())
+    bot.user_states[1] = {"flow": "log", "step": "_more_or_finish", "data": {"peace_level": 7}}
+    call = _make_callback(1, "flow_finish_early")
+    bot.handle_more_or_finish(call)
+    assert bot.user_states[1]["step"] == "_confirm"
+    sent_text = bot.bot.send_message.call_args[0][1]
+    assert "خلاصه" in sent_text
+
+
+def test_pain_now_flow_has_no_more_or_finish(isolated_db, monkeypatch):
+    """pain_now flow is short and should NOT trigger the more_or_finish prompt."""
+    monkeypatch.setattr(bot.bot, "send_message", MagicMock())
+    steps = bot.FLOWS["pain_now"]
+    bot.user_states[1] = {"flow": "pain_now", "step": steps[0], "data": {}}
+    for step in steps:
+        bot.user_states[1]["step"] = step
+        bot.advance_flow(1, 1, 5)
+    assert bot.user_states[1]["step"] == "_confirm"
+
+
 # ── Confirmation ──────────────────────────────────────────────────────────────
 
 def test_format_confirmation():
@@ -559,7 +608,7 @@ def test_handle_start_non_admin(monkeypatch):
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot.handle_start(_make_message(42))
-    assert "دسترسی" in mock_send.call_args[0][1]
+    mock_send.assert_not_called()
 
 
 def test_handle_cancel_active_flow(monkeypatch, isolated_db):
@@ -614,6 +663,33 @@ def test_handle_undo_empty(monkeypatch, isolated_db):
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
     bot.handle_undo(_make_message(42, "/undo"))
     assert "نیست" in mock_send.call_args[0][1]
+
+
+def test_handle_edit_updates_field(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    db.insert_log(user_id=42, back_pain=8)
+    bot.handle_edit(_make_message(42, "/edit back_pain 3"))
+    assert "3" in mock_send.call_args[0][1]
+    logs = db.get_recent_logs(1, user_id=42)
+    assert logs[0]["back_pain"] == 3
+
+
+def test_handle_edit_no_args(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.handle_edit(_make_message(42, "/edit"))
+    assert "field" in mock_send.call_args[0][1] or "فیلد" in mock_send.call_args[0][1]
+
+
+def test_handle_edit_invalid_field(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.handle_edit(_make_message(42, "/edit fake_field 5"))
+    assert "نامعتبر" in mock_send.call_args[0][1]
 
 
 def test_handle_timezone_show(monkeypatch, isolated_db):

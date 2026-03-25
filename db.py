@@ -7,7 +7,7 @@ import io
 import json
 import shutil
 import sqlite3
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -110,6 +110,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
 def init_db() -> None:
     """Create all tables if they do not exist, then run migrations."""
     with get_connection() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         _run_migrations(conn)
 
@@ -149,31 +150,32 @@ def insert_log(
     timestamp: Optional[datetime] = None,
 ) -> int:
     """Insert a log row. Returns the new row id."""
-    ts = (timestamp or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+    ts = (timestamp or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")
+    # Build INSERT dynamically from provided kwargs to avoid hard-coded column lists.
+    fields = {"timestamp": ts, "user_id": user_id}
+    local = {
+        "back_pain": back_pain, "headache": headache, "peace_level": peace_level,
+        "sleep_quality": sleep_quality, "sleep_hours": sleep_hours,
+        "water_amount": water_amount, "smoke_count": smoke_count,
+        "caffeine_amount": caffeine_amount, "sitting_hours": sitting_hours,
+        "screen_hours": screen_hours, "phone_hours": phone_hours,
+        "computer_hours": computer_hours, "food_details": food_details,
+        "period_status": period_status, "ovulation_status": ovulation_status,
+        "stress_level": stress_level, "anxiety_level": anxiety_level,
+        "back_patch": back_patch, "heater_hours": heater_hours,
+        "massage_type": massage_type, "heavy_lifting_kg": heavy_lifting_kg,
+        "tea_count": tea_count, "water_glasses": water_glasses,
+        "knitting_hours": knitting_hours, "notes": notes,
+    }
+    for k, v in local.items():
+        if v is not None:
+            fields[k] = v
+    cols = ", ".join(fields.keys())
+    placeholders = ", ".join("?" for _ in fields)
     with get_connection() as conn:
         cur = conn.execute(
-            """
-            INSERT INTO logs (
-                timestamp, user_id, back_pain, headache, peace_level,
-                sleep_quality, sleep_hours, water_amount, smoke_count,
-                caffeine_amount, sitting_hours, screen_hours,
-                phone_hours, computer_hours,
-                food_details, period_status, ovulation_status, stress_level, anxiety_level,
-                back_patch, heater_hours, massage_type, heavy_lifting_kg,
-                tea_count, water_glasses, knitting_hours,
-                notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ts, user_id, back_pain, headache, peace_level,
-                sleep_quality, sleep_hours, water_amount, smoke_count,
-                caffeine_amount, sitting_hours, screen_hours,
-                phone_hours, computer_hours,
-                food_details, period_status, ovulation_status, stress_level, anxiety_level,
-                back_patch, heater_hours, massage_type, heavy_lifting_kg,
-                tea_count, water_glasses, knitting_hours,
-                notes,
-            ),
+            f"INSERT INTO logs ({cols}) VALUES ({placeholders})",
+            tuple(fields.values()),
         )
         conn.commit()
         return cur.lastrowid
@@ -273,6 +275,20 @@ def delete_last_log(user_id: int) -> bool:
         return True
 
 
+def update_log(log_id: int, **kwargs) -> bool:
+    """Update specific fields of a log row. Returns True if updated."""
+    if not kwargs:
+        return False
+    set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+    values = list(kwargs.values()) + [log_id]
+    with get_connection() as conn:
+        cur = conn.execute(
+            f"UPDATE logs SET {set_clause} WHERE id = ?", values,
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
 # ---------------------------------------------------------------------------
 # Medications
 # ---------------------------------------------------------------------------
@@ -284,7 +300,7 @@ def insert_medication(
     notes: Optional[str] = None,
     timestamp: Optional[datetime] = None,
 ) -> int:
-    ts = (timestamp or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+    ts = (timestamp or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO medications (timestamp, user_id, name, dosage, notes) "
@@ -335,7 +351,7 @@ def insert_exercise(
     notes: Optional[str] = None,
     timestamp: Optional[datetime] = None,
 ) -> int:
-    ts = (timestamp or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+    ts = (timestamp or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO exercises (timestamp, user_id, exercise_type, duration_minutes, notes) "
@@ -410,7 +426,7 @@ def set_user_settings(user_id: int, **kwargs) -> None:
 # ---------------------------------------------------------------------------
 
 def save_session(user_id: int, flow: str, step: str, data: dict) -> None:
-    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO sessions "
@@ -482,11 +498,11 @@ def get_logging_streak(user_id: int) -> int:
 # ---------------------------------------------------------------------------
 
 def backup_db(backup_dir: Optional[Path] = None) -> Path:
-    """Copy tracker.db to a timestamped backup. Keep the newest 7."""
+    """Copy tracker.db to a timestamped backup. Keep the newest 30."""
     if backup_dir is None:
         backup_dir = DB_PATH.parent / "backups"
     backup_dir.mkdir(exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dest = backup_dir / f"tracker_{ts}.db"
     shutil.copy2(DB_PATH, dest)
 
@@ -495,7 +511,7 @@ def backup_db(backup_dir: Optional[Path] = None) -> Path:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
-    for old in backups[7:]:
+    for old in backups[30:]:
         old.unlink()
     return dest
 

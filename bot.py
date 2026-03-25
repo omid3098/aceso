@@ -102,6 +102,30 @@ FLOWS: dict[str, list[str]] = {
     "period": ["period_status", "ovulation_status"],
 }
 
+# After answering the last core step in the "log" flow, the user is offered
+# a shortcut to finish early instead of continuing through all optional steps.
+LOG_CORE_LAST_STEP = "peace_level"
+
+# Valid numeric ranges for callback values, used to reject spoofed data.
+STEP_VALID_RANGE: dict[str, tuple[float, float]] = {
+    "sleep_quality": (1, 10),
+    "back_pain": (1, 10),
+    "headache": (1, 10),
+    "peace_level": (1, 10),
+    "sleep_hours": (0, 24),
+    "water_amount": (0, 50),
+    "caffeine_amount": (0, 20),
+    "phone_hours": (0, 24),
+    "computer_hours": (0, 24),
+    "sitting_hours": (0, 24),
+    "knitting_hours": (0, 24),
+    "heater_hours": (0, 24),
+    "exercise_duration": (0, 600),
+    "lifting_weight": (0, 200),
+    "period_status": (0, 1),
+    "ovulation_status": (0, 1),
+}
+
 QUESTIONS: dict[str, str] = {
     "sleep_quality":    "😴 <b>کیفیت خوابت دیشب چطور بود؟</b>\n(۱ = خیلی بد، ۱۰ = عالی)",
     "sleep_hours":      "⏰ <b>دیشب چند ساعت خوابیدی؟</b>",
@@ -291,6 +315,16 @@ def _confirm_kb() -> types.InlineKeyboardMarkup:
     markup.add(
         types.InlineKeyboardButton("✅ ثبت", callback_data="flow_confirm"),
         types.InlineKeyboardButton("❌ لغو", callback_data="flow_cancel"),
+    )
+    return markup
+
+
+def _more_or_finish_kb() -> types.InlineKeyboardMarkup:
+    """Offer the user a choice to log more details or finish early."""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ همینا کافیه", callback_data="flow_finish_early"),
+        types.InlineKeyboardButton("📝 ادامه بدم", callback_data="flow_continue"),
     )
     return markup
 
@@ -486,7 +520,10 @@ def _finish_flow(user_id: int, chat_id: int, data: dict, flow: str) -> None:
             sitting_hours=data.get("sitting_hours"),
             phone_hours=data.get("phone_hours"),
             computer_hours=data.get("computer_hours"),
+            knitting_hours=data.get("knitting_hours"),
             food_details=data.get("food_details"),
+            period_status=data.get("period_status"),
+            ovulation_status=data.get("ovulation_status"),
             notes=data.get("notes"),
         )
         feedback = _generate_feedback(user_id, data, flow)
@@ -561,6 +598,16 @@ def advance_flow(user_id: int, chat_id: int, value) -> None:
         return
 
     if current_idx + 1 < len(flow_steps):
+        # After the last core step in the "log" flow, offer a shortcut to finish early
+        if state["flow"] == "log" and step == LOG_CORE_LAST_STEP:
+            state["step"] = "_more_or_finish"
+            _persist_state(user_id)
+            bot.send_message(
+                chat_id,
+                "✅ سؤالات اصلی تموم شد!\nمیخوای جزئیات بیشتر وارد کنی؟",
+                reply_markup=_more_or_finish_kb(),
+            )
+            return
         next_step = flow_steps[current_idx + 1]
         state["step"] = next_step
         _persist_state(user_id)
@@ -652,7 +699,6 @@ def _format_last_log(row, user_id: int) -> str:
 @bot.message_handler(commands=["start"])
 def handle_start(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
-        bot.send_message(message.chat.id, "⛔ دسترسی نداری.")
         return
     bot.send_message(
         message.chat.id,
@@ -692,6 +738,52 @@ def handle_undo(message: types.Message) -> None:
         bot.send_message(message.chat.id, "↩️ آخرین لاگ پاک شد.", reply_markup=main_menu_keyboard())
     else:
         bot.send_message(message.chat.id, "لاگی برای حذف نیست.")
+
+
+_EDITABLE_FIELDS = {
+    "back_pain", "headache", "peace_level", "sleep_quality", "sleep_hours",
+    "water_amount", "caffeine_amount", "sitting_hours", "phone_hours",
+    "computer_hours", "knitting_hours", "smoke_count",
+}
+
+
+@bot.message_handler(commands=["edit"])
+def handle_edit(message: types.Message) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split()
+    if len(parts) < 3:
+        field_list = ", ".join(sorted(_EDITABLE_FIELDS))
+        bot.send_message(
+            message.chat.id,
+            f"✏️ <b>ویرایش آخرین لاگ</b>\n\n"
+            f"استفاده: <code>/edit field value</code>\n"
+            f"مثال: <code>/edit back_pain 3</code>\n\n"
+            f"فیلدها: <code>{field_list}</code>",
+        )
+        return
+    field = parts[1].lower()
+    if field not in _EDITABLE_FIELDS:
+        bot.send_message(message.chat.id, f"❌ فیلد نامعتبر: {field}")
+        return
+    try:
+        value = float(parts[2]) if "." in parts[2] else int(parts[2])
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ مقدار باید عدد باشه.")
+        return
+    logs = database.get_recent_logs(1, user_id=message.from_user.id)
+    if not logs:
+        bot.send_message(message.chat.id, "لاگی برای ویرایش نیست.")
+        return
+    if database.update_log(logs[0]["id"], **{field: value}):
+        label = STEP_LABELS.get(field, field)
+        bot.send_message(
+            message.chat.id,
+            f"✏️ <b>{label}</b> به <b>{value}</b> تغییر کرد.",
+            reply_markup=main_menu_keyboard(),
+        )
+    else:
+        bot.send_message(message.chat.id, "❌ ویرایش انجام نشد.")
 
 
 @bot.message_handler(commands=["timezone"])
@@ -824,12 +916,37 @@ def handle_export_cmd(message: types.Message) -> None:
 def handle_backup_cmd(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
         return
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ بله، ارسال کن", callback_data="backup_confirm"),
+        types.InlineKeyboardButton("❌ لغو", callback_data="backup_cancel"),
+    )
+    bot.send_message(
+        message.chat.id,
+        "⚠️ <b>فایل کامل دیتابیس از طریق تلگرام ارسال میشه.</b>\nمطمئنی؟",
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data in ("backup_confirm", "backup_cancel"))
+def handle_backup_confirm(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "دسترسی نداری.")
+        return
+    try:
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    except Exception:
+        pass
+    if call.data == "backup_cancel":
+        bot.answer_callback_query(call.id, "❌ لغو شد")
+        return
+    bot.answer_callback_query(call.id, "💾 در حال بکاپ...")
     try:
         path = database.backup_db()
         with open(path, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="💾 بکاپ دیتابیس")
+            bot.send_document(call.message.chat.id, f, caption="💾 بکاپ دیتابیس")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ خطا در بکاپ: {e}")
+        bot.send_message(call.message.chat.id, f"❌ خطا در بکاپ: {e}")
 
 
 @bot.message_handler(commands=["monthly"])
@@ -994,12 +1111,19 @@ def handle_value_callback(call: types.CallbackQuery) -> None:
 
     step = state.get("step", "")
     if step == "massage_type":
+        if raw not in ("firm", "gentle", "none"):
+            bot.answer_callback_query(call.id, "مقدار نامعتبر.")
+            return
         value = raw
     else:
         try:
             value = float(raw) if "." in raw else int(raw)
         except ValueError:
             bot.answer_callback_query(call.id, "مقدار نامعتبر.")
+            return
+        bounds = STEP_VALID_RANGE.get(step)
+        if bounds and not (bounds[0] <= value <= bounds[1]):
+            bot.answer_callback_query(call.id, "مقدار خارج از محدوده.")
             return
 
     bot.answer_callback_query(call.id, f"✅ {value} ثبت شد")
@@ -1037,6 +1161,38 @@ def handle_flow_confirm(call: types.CallbackQuery) -> None:
         bot.send_message(call.message.chat.id, "❌ عملیات لغو شد.", reply_markup=main_menu_keyboard())
 
 
+@bot.callback_query_handler(func=lambda c: c.data in ("flow_finish_early", "flow_continue"))
+def handle_more_or_finish(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "دسترسی نداری.")
+        return
+
+    state = user_states.get(call.from_user.id)
+    if not state or state["step"] != "_more_or_finish":
+        bot.answer_callback_query(call.id, "جلسه‌ای فعال نیست.")
+        return
+
+    try:
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    except Exception:
+        pass
+
+    if call.data == "flow_finish_early":
+        bot.answer_callback_query(call.id, "✅")
+        state["step"] = "_confirm"
+        _persist_state(call.from_user.id)
+        summary = _format_confirmation(state["data"], state["flow"])
+        bot.send_message(call.message.chat.id, summary, reply_markup=_confirm_kb())
+    else:
+        bot.answer_callback_query(call.id, "📝 ادامه...")
+        flow_steps = FLOWS[state["flow"]]
+        core_idx = flow_steps.index(LOG_CORE_LAST_STEP)
+        next_step = flow_steps[core_idx + 1]
+        state["step"] = next_step
+        _persist_state(call.from_user.id)
+        ask_question(call.message.chat.id, next_step, call.from_user.id)
+
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("med_"))
 def handle_med_callback(call: types.CallbackQuery) -> None:
     if not is_admin(call.from_user.id):
@@ -1049,6 +1205,9 @@ def handle_med_callback(call: types.CallbackQuery) -> None:
         return
 
     med_name = call.data[4:]
+    if med_name not in ("Ibuprofen", "Acetaminophen", "Aspirin", "Other"):
+        bot.answer_callback_query(call.id, "مقدار نامعتبر.")
+        return
     bot.answer_callback_query(call.id, f"✅ {med_name}")
     try:
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
@@ -1073,6 +1232,9 @@ def handle_exercise_callback(call: types.CallbackQuery) -> None:
         return
 
     ex_type = call.data[3:]
+    if ex_type not in ("Walking", "Stretching", "Gym", "Swimming", "Cycling", "Running", "Other"):
+        bot.answer_callback_query(call.id, "مقدار نامعتبر.")
+        return
     bot.answer_callback_query(call.id, f"✅ {ex_type}")
     try:
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)

@@ -691,10 +691,7 @@ def _format_last_log(row, user_id: int) -> str:
         f"🦴 کمردرد: {row['back_pain'] or '—'}/10",
         f"🤕 سردرد: {row['headache'] or '—'}/10",
         f"🧘 آرامش: {row['peace_level'] or '—'}/10\n",
-        f"💧 آب: {row['water_amount'] or '—'} لیوان",
-        f"🍵 چای: {_v('tea_count') or '—'} لیوان",
         f"🚬 سیگار: {row['smoke_count'] or '—'} نخ",
-        f"☕ کافئین: {row['caffeine_amount'] or '—'}",
     ]
 
     if phone is not None or computer is not None:
@@ -1475,7 +1472,8 @@ def _send_today_summary(chat_id: int, user_id: int) -> None:
         e for e in exercises
         if e["timestamp"][:10] == today
     ]
-    text = reports.generate_daily_summary(logs, meds, today_exercises)
+    beverages = database.get_today_beverages(user_id, today)
+    text = reports.generate_daily_summary(logs, meds, today_exercises, beverages=beverages)
     bot.send_message(chat_id, text, reply_markup=main_menu_keyboard())
 
 
@@ -1491,7 +1489,23 @@ def _send_weekly_report(chat_id: int, user_id: int) -> None:
     exercises = database.get_recent_exercises(100, user_id=user_id)
     week_exercises = [e for e in exercises if e["timestamp"][:10] >= week_start]
 
-    text = reports.generate_weekly_report(logs, prev_logs, meds, week_exercises)
+    bev_daily = database.get_daily_beverage_totals_by_range(user_id, week_start, week_end)
+    bev_totals = {
+        "total_water_ml": sum(d["total_water_ml"] for d in bev_daily.values()),
+        "total_caffeine_mg": sum(d["total_caffeine_mg"] for d in bev_daily.values()),
+        "total_sugar_g": sum(d["total_sugar_g"] for d in bev_daily.values()),
+    }
+    prev_bev_daily = database.get_daily_beverage_totals_by_range(user_id, prev_start, week_start)
+    prev_bev_totals = {
+        "total_water_ml": sum(d["total_water_ml"] for d in prev_bev_daily.values()),
+        "total_caffeine_mg": sum(d["total_caffeine_mg"] for d in prev_bev_daily.values()),
+        "total_sugar_g": sum(d["total_sugar_g"] for d in prev_bev_daily.values()),
+    }
+
+    text = reports.generate_weekly_report(
+        logs, prev_logs, meds, week_exercises,
+        beverage_totals=bev_totals, prev_beverage_totals=prev_bev_totals,
+    )
     bot.send_message(chat_id, text, reply_markup=main_menu_keyboard())
 
 
@@ -1509,7 +1523,23 @@ def _send_monthly_report(chat_id: int, user_id: int) -> None:
     exercises = database.get_recent_exercises(200, user_id=user_id)
     month_exercises = [e for e in exercises if e["timestamp"][:10] >= month_start]
 
-    text = reports.generate_monthly_report(logs, prev_logs, meds, month_exercises)
+    bev_daily = database.get_daily_beverage_totals_by_range(user_id, month_start, month_end)
+    bev_totals = {
+        "total_water_ml": sum(d["total_water_ml"] for d in bev_daily.values()),
+        "total_caffeine_mg": sum(d["total_caffeine_mg"] for d in bev_daily.values()),
+        "total_sugar_g": sum(d["total_sugar_g"] for d in bev_daily.values()),
+    }
+    prev_bev_daily = database.get_daily_beverage_totals_by_range(user_id, prev_month_start, prev_month_end_str)
+    prev_bev_totals = {
+        "total_water_ml": sum(d["total_water_ml"] for d in prev_bev_daily.values()),
+        "total_caffeine_mg": sum(d["total_caffeine_mg"] for d in prev_bev_daily.values()),
+        "total_sugar_g": sum(d["total_sugar_g"] for d in prev_bev_daily.values()),
+    }
+
+    text = reports.generate_monthly_report(
+        logs, prev_logs, meds, month_exercises,
+        beverage_totals=bev_totals, prev_beverage_totals=prev_bev_totals,
+    )
     bot.send_message(chat_id, text, reply_markup=main_menu_keyboard())
 
 
@@ -1535,7 +1565,7 @@ def _send_chart(chat_id: int, user_id: int, days: int = 7) -> None:
     )
     lifestyle_chart = reports.generate_trend_chart(
         logs,
-        ["phone_hours", "computer_hours", "sitting_hours", "water_amount", "knitting_hours"],
+        ["phone_hours", "computer_hours", "sitting_hours", "knitting_hours"],
         title=f"سبک زندگی — {days} روز اخیر",
     )
 
@@ -1577,12 +1607,6 @@ def _send_history(chat_id: int, user_id: int, days: int = 7) -> None:
             parts.append(f"🧘{log['peace_level']}")
         if log["smoke_count"] is not None:
             parts.append(f"🚬{log['smoke_count']}")
-        if log["water_amount"] is not None:
-            parts.append(f"💧{log['water_amount']}")
-        if _hv(log, "tea_count"):
-            parts.append(f"🍵{_hv(log, 'tea_count')}")
-        if _hv(log, "water_glasses") is not None:
-            parts.append(f"💧+{_hv(log, 'water_glasses')}")
         if _hv(log, "knitting_hours") is not None:
             parts.append(f"🧶{_hv(log, 'knitting_hours')}")
         if _hv(log, "back_patch"):
@@ -1602,7 +1626,11 @@ def _send_history(chat_id: int, user_id: int, days: int = 7) -> None:
 
 def _send_insights(chat_id: int, user_id: int) -> None:
     logs = database.get_recent_logs(200, user_id=user_id)
-    insights = reports.compute_correlations(logs)
+    today = _now_local(user_id).date()
+    start = (today - timedelta(days=90)).strftime("%Y-%m-%d")
+    end = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+    daily_bev = database.get_daily_beverage_totals_by_range(user_id, start, end)
+    insights = reports.compute_correlations(logs, daily_beverage=daily_bev)
     text = "🔍 <b>بینش‌ها</b>\n\n" + "\n\n".join(insights)
     bot.send_message(chat_id, text, reply_markup=main_menu_keyboard())
 

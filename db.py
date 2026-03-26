@@ -349,6 +349,41 @@ def get_today_beverage_totals(user_id: int, date_str: str) -> dict:
     }
 
 
+def get_beverages_by_date_range(user_id: int, start_date: str, end_date: str) -> list[sqlite3.Row]:
+    """Return beverage_log rows within [start_date, end_date)."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT * FROM beverage_log WHERE user_id = ? AND date >= ? AND date < ? "
+            "ORDER BY timestamp ASC",
+            (user_id, start_date, end_date),
+        )
+        return list(cur.fetchall())
+
+
+def get_daily_beverage_totals_by_range(user_id: int, start_date: str, end_date: str) -> dict[str, dict]:
+    """Return per-day aggregated beverage totals for a date range."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT date, "
+            "SUM(water_ml) as total_water_ml, "
+            "SUM(caffeine_mg) as total_caffeine_mg, "
+            "SUM(sugar_g) as total_sugar_g, "
+            "SUM(calories) as total_calories "
+            "FROM beverage_log WHERE user_id = ? AND date >= ? AND date < ? "
+            "GROUP BY date",
+            (user_id, start_date, end_date),
+        )
+        result = {}
+        for row in cur.fetchall():
+            result[row["date"]] = {
+                "total_water_ml": row["total_water_ml"],
+                "total_caffeine_mg": row["total_caffeine_mg"],
+                "total_sugar_g": row["total_sugar_g"],
+                "total_calories": row["total_calories"],
+            }
+        return result
+
+
 def has_today_sleep_data(user_id: int, today_str: str) -> bool:
     """Check if sleep data was already logged today."""
     with get_connection() as conn:

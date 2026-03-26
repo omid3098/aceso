@@ -789,3 +789,32 @@ def test_get_today_beverage_totals_empty_day():
     assert totals["total_caffeine_mg"] == 0
     assert totals["total_water_ml"] == 0
     assert totals["per_beverage"] == {}
+
+
+# ── get_beverages_by_date_range ───────────────────────────────────────────────
+
+def test_get_beverages_by_date_range():
+    db.init_db()
+    ts1 = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+    ts2 = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+    ts3 = datetime(2026, 3, 20, 10, 0, 0, tzinfo=timezone.utc)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts1)
+    db.insert_beverage(user_id=1, beverage_id="water", timestamp=ts2)
+    db.insert_beverage(user_id=1, beverage_id="coffee", timestamp=ts3)
+    rows = db.get_beverages_by_date_range(user_id=1, start_date="2026-03-10", end_date="2026-03-16")
+    assert len(rows) == 2
+
+
+def test_get_daily_beverage_totals_by_range():
+    db.init_db()
+    ts1 = datetime(2026, 3, 10, 8, 0, 0, tzinfo=timezone.utc)
+    ts2 = datetime(2026, 3, 10, 14, 0, 0, tzinfo=timezone.utc)
+    ts3 = datetime(2026, 3, 11, 10, 0, 0, tzinfo=timezone.utc)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts1)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts2)
+    db.insert_beverage(user_id=1, beverage_id="coffee", timestamp=ts3)
+    result = db.get_daily_beverage_totals_by_range(user_id=1, start_date="2026-03-10", end_date="2026-03-12")
+    assert "2026-03-10" in result
+    assert result["2026-03-10"]["total_caffeine_mg"] == 52  # 26 * 2
+    assert "2026-03-11" in result
+    assert result["2026-03-11"]["total_caffeine_mg"] == 50

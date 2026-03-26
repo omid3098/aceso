@@ -8,6 +8,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
+from db import BEVERAGES
+
 try:
     import matplotlib
     matplotlib.use("Agg")
@@ -30,11 +32,7 @@ FIELD_LABELS = {
     "peace_level": "Peace",
     "sleep_quality": "Sleep Quality",
     "sleep_hours": "Sleep (h)",
-    "water_amount": "Water",
-    "water_glasses": "Water (quick)",
-    "tea_count": "Tea",
     "smoke_count": "Cigarettes",
-    "caffeine_amount": "Caffeine",
     "screen_hours": "Screen (h)",
     "phone_hours": "Phone (h)",
     "computer_hours": "Computer (h)",
@@ -50,11 +48,7 @@ FIELD_LABELS_FA = {
     "peace_level": "آرامش",
     "sleep_quality": "خواب",
     "sleep_hours": "مدت خواب",
-    "water_amount": "آب",
-    "water_glasses": "آب (دکمه)",
-    "tea_count": "چای",
     "smoke_count": "سیگار",
-    "caffeine_amount": "کافئین",
     "screen_hours": "صفحه‌نمایش",
     "phone_hours": "گوشی",
     "computer_hours": "سیستم",
@@ -143,8 +137,6 @@ _REPORT_FIELDS = [
     ("back_pain", "🦴 کمردرد"),
     ("headache", "🤕 سردرد"),
     ("peace_level", "🧘 آرامش"),
-    ("water_amount", "💧 آب"),
-    ("caffeine_amount", "☕ کافئین"),
     ("phone_hours", "📱 گوشی"),
     ("computer_hours", "💻 سیستم"),
     ("sitting_hours", "🪑 نشستن"),
@@ -256,9 +248,9 @@ def generate_monthly_report(
     return "\n".join(lines)
 
 
-def generate_daily_summary(logs: list, medications: list, exercises: list) -> str:
+def generate_daily_summary(logs: list, medications: list, exercises: list, *, beverages: list | None = None) -> str:
     """Return a formatted text summary for a single day."""
-    if not logs and not medications and not exercises:
+    if not logs and not medications and not exercises and not beverages:
         return "📋 امروز هنوز داده‌ای ثبت نشده."
 
     lines = ["📋 <b>خلاصه امروز</b>\n"]
@@ -269,9 +261,7 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
         ("back_pain", "🦴 کمردرد", "/10"),
         ("headache", "🤕 سردرد", "/10"),
         ("peace_level", "🧘 آرامش", "/10"),
-        ("water_amount", "💧 آب", " لیوان"),
         ("smoke_count", "🚬 سیگار", " نخ"),
-        ("caffeine_amount", "☕ کافئین", ""),
         ("phone_hours", "📱 گوشی", " ساعت"),
         ("computer_hours", "💻 سیستم", " ساعت"),
         ("sitting_hours", "🪑 نشستن", " ساعت"),
@@ -279,8 +269,6 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
 
     latest = {}
     total_smokes = 0
-    total_tea = 0
-    total_water_glasses = 0.0
     total_patches = 0
     for log in logs:
         for key, _, _ in fields:
@@ -293,27 +281,47 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
         bp = _get_val(log, "back_patch")
         if bp:
             total_patches += bp
-        t = _get_val(log, "tea_count")
-        if t is not None:
-            total_tea += t
-        wg = _get_val(log, "water_glasses")
-        if wg is not None:
-            total_water_glasses += float(wg)
 
     for key, label, unit in fields:
         if key == "smoke_count":
             display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
             lines.append(f"{label}: {display}{unit}")
-        elif key == "water_amount" and (key in latest or total_water_glasses > 0):
-            water_from_log = latest.get("water_amount") or 0
-            total_water = water_from_log + total_water_glasses
-            display = int(total_water) if total_water == int(total_water) else total_water
-            lines.append(f"{label}: {display}{unit}")
         elif key in latest:
             lines.append(f"{label}: {latest[key]}{unit}")
 
-    if total_tea > 0:
-        lines.append(f"🍵 چای: {total_tea} لیوان")
+    if beverages:
+        lines.append("\n🥤 نوشیدنی‌ها:")
+        # Group by beverage_id
+        bev_totals: dict[str, dict] = {}
+        for bev in beverages:
+            bid = bev["beverage_id"] if isinstance(bev, dict) else bev["beverage_id"]
+            if bid not in bev_totals:
+                bev_totals[bid] = {"servings": 0, "water_ml": 0, "caffeine_mg": 0, "sugar_g": 0, "calories": 0}
+            bev_totals[bid]["servings"] += bev["servings"]
+            bev_totals[bid]["water_ml"] += bev["water_ml"]
+            bev_totals[bid]["caffeine_mg"] += bev["caffeine_mg"]
+            bev_totals[bid]["sugar_g"] += bev["sugar_g"]
+            bev_totals[bid]["calories"] += bev["calories"]
+
+        total_water = total_caffeine = total_sugar = total_cal = 0
+        for bid, data in bev_totals.items():
+            bev_info = BEVERAGES.get(bid, {})
+            emoji = bev_info.get("emoji", "")
+            label = bev_info.get("label_fa", bid)
+            glasses = data["servings"] / 2
+            glasses_display = int(glasses) if glasses == int(glasses) else glasses
+            lines.append(f"{emoji} {label}: {glasses_display} لیوان")
+            total_water += data["water_ml"]
+            total_caffeine += data["caffeine_mg"]
+            total_sugar += data["sugar_g"]
+            total_cal += data["calories"]
+
+        lines.append(
+            f"── مجموع: آب {int(total_water)}ml | "
+            f"کافئین {int(total_caffeine)}mg | "
+            f"قند {int(total_sugar)}g | "
+            f"{int(total_cal)}kcal"
+        )
 
     if total_patches:
         lines.append(f"🩹 چسب کمر: {total_patches} بار")

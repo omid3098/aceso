@@ -340,3 +340,23 @@ def test_generate_trend_chart_with_phone_hours():
     result = reports.generate_trend_chart(logs, ["phone_hours"])
     if reports.MATPLOTLIB_AVAILABLE:
         assert isinstance(result, bytes)
+
+
+# ── Task 6: Beverage section in daily summary ─────────────────────────────────
+
+def test_daily_summary_shows_beverages():
+    beverages = [
+        {"beverage_id": "tea", "servings": 2, "water_ml": 248, "caffeine_mg": 52, "sugar_g": 0, "calories": 2},
+        {"beverage_id": "water", "servings": 4, "water_ml": 500, "caffeine_mg": 0, "sugar_g": 0, "calories": 0},
+        {"beverage_id": "coffee", "servings": 1, "water_ml": 124, "caffeine_mg": 50, "sugar_g": 0, "calories": 1},
+    ]
+    result = reports.generate_daily_summary([], [], [], beverages=beverages)
+    assert "نوشیدنی" in result
+    assert "چای" in result
+    assert "آب" in result
+    assert "قهوه" in result
+
+
+def test_daily_summary_no_beverages():
+    result = reports.generate_daily_summary([], [], [])
+    assert "نوشیدنی" not in result

@@ -377,13 +377,30 @@ def _clear_state(user_id: int) -> None:
     database.delete_session(user_id)
 
 
+def _is_session_stale(user_id: int) -> bool:
+    """Return True if the user's persisted session is older than _SESSION_EXPIRY_HOURS."""
+    sess = database.load_session(user_id)
+    if not sess or not sess.get("updated_at"):
+        return False
+    try:
+        updated = datetime.strptime(sess["updated_at"], "%Y-%m-%d %H:%M:%S")
+        age_hours = (datetime.now(pytz.UTC).replace(tzinfo=None) - updated).total_seconds() / 3600
+        return age_hours > _SESSION_EXPIRY_HOURS
+    except (ValueError, TypeError):
+        return False
+
+
 def _restore_sessions() -> None:
-    """Load persisted sessions into memory on bot startup."""
+    """Load persisted sessions into memory on bot startup. Discard stale ones."""
     for uid in ADMIN_IDS:
         sess = database.load_session(uid)
         if sess:
-            user_states[uid] = sess
-            logger.info("Restored session for user %s (flow=%s, step=%s)", uid, sess["flow"], sess["step"])
+            if _is_session_stale(uid):
+                logger.info("Discarding stale session for user %s (flow=%s, step=%s).", uid, sess["flow"], sess["step"])
+                _clear_state(uid)
+            else:
+                user_states[uid] = sess
+                logger.info("Restored session for user %s (flow=%s, step=%s)", uid, sess["flow"], sess["step"])
 
 
 def _progress_bar(step: str, flow: str) -> str:
@@ -1501,22 +1518,11 @@ _SESSION_EXPIRY_HOURS = 6
 def _send_reminder(uid: int, greeting: str) -> None:
     """Start the unified log flow for a user via scheduled reminder."""
     if uid in user_states:
-        # Expire stale sessions so reminders aren't blocked forever
-        sess = database.load_session(uid)
-        if sess and sess.get("updated_at"):
-            try:
-                updated = datetime.strptime(sess["updated_at"], "%Y-%m-%d %H:%M:%S")
-                age_hours = (datetime.now(pytz.UTC).replace(tzinfo=None) - updated).total_seconds() / 3600
-                if age_hours > _SESSION_EXPIRY_HOURS:
-                    logger.info("Clearing stale session for user %s (%.1fh old).", uid, age_hours)
-                    _clear_state(uid)
-                else:
-                    logger.info("Skipping reminder for user %s — active flow (%.1fh old).", uid, age_hours)
-                    return
-            except (ValueError, TypeError):
-                pass
+        if _is_session_stale(uid):
+            logger.info("Clearing stale session for user %s before reminder.", uid)
+            _clear_state(uid)
         else:
-            logger.info("Skipping reminder for user %s — already in a flow.", uid)
+            logger.info("Skipping reminder for user %s — active flow.", uid)
             return
     try:
         first_step = FLOWS["log"][0]

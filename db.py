@@ -280,6 +280,75 @@ def get_today_water_glasses(user_id: int, today_str: str) -> float:
         return cur.fetchone()["total"]
 
 
+def insert_beverage(
+    user_id: int,
+    beverage_id: str,
+    servings: float = 1,
+    timestamp: Optional[datetime] = None,
+) -> int:
+    """Insert a beverage log entry. Calculates nutrition from BEVERAGES dict."""
+    if beverage_id not in BEVERAGES:
+        raise ValueError(f"Unknown beverage: {beverage_id}")
+    bev = BEVERAGES[beverage_id]
+    ts = (timestamp or datetime.now(timezone.utc))
+    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+    date_str = ts.strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO beverage_log "
+            "(user_id, beverage_id, servings, water_ml, caffeine_mg, sugar_g, calories, date, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                user_id, beverage_id, servings,
+                bev["water_ml"] * servings,
+                bev["caffeine_mg"] * servings,
+                bev["sugar_g"] * servings,
+                bev["calories"] * servings,
+                date_str, ts_str,
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_today_beverages(user_id: int, date_str: str) -> list[sqlite3.Row]:
+    """Return all beverage_log rows for a given date."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT * FROM beverage_log WHERE user_id = ? AND date = ?",
+            (user_id, date_str),
+        )
+        return list(cur.fetchall())
+
+
+def get_today_beverage_totals(user_id: int, date_str: str) -> dict:
+    """Return aggregated beverage totals for a given date."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT COALESCE(SUM(water_ml), 0) as total_water_ml, "
+            "COALESCE(SUM(caffeine_mg), 0) as total_caffeine_mg, "
+            "COALESCE(SUM(sugar_g), 0) as total_sugar_g, "
+            "COALESCE(SUM(calories), 0) as total_calories "
+            "FROM beverage_log WHERE user_id = ? AND date = ?",
+            (user_id, date_str),
+        )
+        row = cur.fetchone()
+        cur2 = conn.execute(
+            "SELECT beverage_id, SUM(servings) as total_servings "
+            "FROM beverage_log WHERE user_id = ? AND date = ? "
+            "GROUP BY beverage_id",
+            (user_id, date_str),
+        )
+        per_beverage = {r["beverage_id"]: r["total_servings"] for r in cur2.fetchall()}
+    return {
+        "total_water_ml": row["total_water_ml"],
+        "total_caffeine_mg": row["total_caffeine_mg"],
+        "total_sugar_g": row["total_sugar_g"],
+        "total_calories": row["total_calories"],
+        "per_beverage": per_beverage,
+    }
+
+
 def has_today_sleep_data(user_id: int, today_str: str) -> bool:
     """Check if sleep data was already logged today."""
     with get_connection() as conn:

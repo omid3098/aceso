@@ -1,7 +1,7 @@
 """Tests for db.py – SQLite health-log layer with medications, exercises, settings, etc."""
 import json
 import sqlite3
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -697,3 +697,95 @@ def test_insert_log_tea_water_ovulation_knitting():
     assert row["water_glasses"] == pytest.approx(1.5)
     assert row["ovulation_status"] == 1
     assert row["knitting_hours"] == pytest.approx(3.0)
+
+
+# ── insert_beverage ───────────────────────────────────────────────────────────
+
+def test_insert_beverage_returns_row_id():
+    db.init_db()
+    row_id = db.insert_beverage(user_id=1, beverage_id="tea")
+    assert row_id == 1
+
+
+def test_insert_beverage_calculates_nutrition():
+    db.init_db()
+    db.insert_beverage(user_id=1, beverage_id="tea")
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM beverage_log WHERE id = 1").fetchone()
+    assert row["beverage_id"] == "tea"
+    assert row["servings"] == 1
+    assert row["water_ml"] == 124
+    assert row["caffeine_mg"] == 26
+    assert row["sugar_g"] == 0
+    assert row["calories"] == 1
+
+
+def test_insert_beverage_custom_servings():
+    db.init_db()
+    db.insert_beverage(user_id=1, beverage_id="coffee", servings=3)
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM beverage_log WHERE id = 1").fetchone()
+    assert row["servings"] == 3
+    assert row["caffeine_mg"] == 150  # 50 * 3
+    assert row["water_ml"] == 372     # 124 * 3
+
+
+def test_insert_beverage_sets_date():
+    db.init_db()
+    ts = datetime(2026, 3, 15, 10, 30, 0, tzinfo=timezone.utc)
+    db.insert_beverage(user_id=1, beverage_id="water", timestamp=ts)
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM beverage_log WHERE id = 1").fetchone()
+    assert row["date"] == "2026-03-15"
+    assert row["timestamp"] == "2026-03-15 10:30:00"
+
+
+def test_insert_beverage_invalid_beverage_id():
+    db.init_db()
+    with pytest.raises(ValueError, match="Unknown beverage"):
+        db.insert_beverage(user_id=1, beverage_id="unknown_drink")
+
+
+# ── get_today_beverages ───────────────────────────────────────────────────────
+
+def test_get_today_beverages():
+    db.init_db()
+    ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts)
+    db.insert_beverage(user_id=1, beverage_id="water", servings=2, timestamp=ts)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts)
+    rows = db.get_today_beverages(user_id=1, date_str="2026-03-15")
+    assert len(rows) == 3
+
+
+def test_get_today_beverages_filters_by_date():
+    db.init_db()
+    ts1 = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+    ts2 = datetime(2026, 3, 16, 10, 0, 0, tzinfo=timezone.utc)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts1)
+    db.insert_beverage(user_id=1, beverage_id="water", timestamp=ts2)
+    rows = db.get_today_beverages(user_id=1, date_str="2026-03-15")
+    assert len(rows) == 1
+
+
+# ── get_today_beverage_totals ─────────────────────────────────────────────────
+
+def test_get_today_beverage_totals():
+    db.init_db()
+    ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts)
+    db.insert_beverage(user_id=1, beverage_id="tea", timestamp=ts)
+    db.insert_beverage(user_id=1, beverage_id="coffee", timestamp=ts)
+    totals = db.get_today_beverage_totals(user_id=1, date_str="2026-03-15")
+    assert totals["total_caffeine_mg"] == 26 + 26 + 50
+    assert totals["total_water_ml"] == 124 + 124 + 124
+    assert totals["per_beverage"]["tea"] == 2
+    assert totals["per_beverage"]["coffee"] == 1
+
+
+def test_get_today_beverage_totals_empty_day():
+    db.init_db()
+    totals = db.get_today_beverage_totals(user_id=1, date_str="2026-03-15")
+    assert totals["total_caffeine_mg"] == 0
+    assert totals["total_water_ml"] == 0
+    assert totals["per_beverage"] == {}

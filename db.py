@@ -18,20 +18,20 @@ CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     user_id INTEGER NOT NULL,
-    back_pain INTEGER,
-    headache INTEGER,
-    peace_level INTEGER,
-    sleep_quality INTEGER,
-    sleep_hours REAL,
-    water_amount INTEGER,
-    smoke_count INTEGER,
-    caffeine_amount INTEGER,
-    sitting_hours REAL,
-    screen_hours REAL,
+    back_pain INTEGER CHECK(back_pain BETWEEN 1 AND 10),
+    headache INTEGER CHECK(headache BETWEEN 1 AND 10),
+    peace_level INTEGER CHECK(peace_level BETWEEN 1 AND 10),
+    sleep_quality INTEGER CHECK(sleep_quality BETWEEN 1 AND 10),
+    sleep_hours REAL CHECK(sleep_hours >= 0 AND sleep_hours <= 24),
+    water_amount INTEGER CHECK(water_amount >= 0),
+    smoke_count REAL CHECK(smoke_count >= 0),
+    caffeine_amount INTEGER CHECK(caffeine_amount >= 0),
+    sitting_hours REAL CHECK(sitting_hours >= 0 AND sitting_hours <= 24),
+    screen_hours REAL CHECK(screen_hours >= 0 AND screen_hours <= 24),
     food_details TEXT,
-    period_status INTEGER,
-    stress_level INTEGER,
-    anxiety_level INTEGER,
+    period_status INTEGER CHECK(period_status IN (0, 1)),
+    stress_level INTEGER CHECK(stress_level BETWEEN 1 AND 10),
+    anxiety_level INTEGER CHECK(anxiety_level BETWEEN 1 AND 10),
     notes TEXT
 );
 
@@ -183,7 +183,6 @@ def insert_log(
 
 def get_recent_logs(limit: int = 50, user_id: Optional[int] = None) -> list[sqlite3.Row]:
     """Return the most recent log rows (newest first)."""
-    init_db()
     with get_connection() as conn:
         if user_id is not None:
             cur = conn.execute(
@@ -202,7 +201,6 @@ def get_logs_by_date_range(
     user_id: int, start_date: str, end_date: str,
 ) -> list[sqlite3.Row]:
     """Return logs within [start_date, end_date) ordered by timestamp ASC."""
-    init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT * FROM logs WHERE user_id = ? AND timestamp >= ? AND timestamp < ? "
@@ -214,7 +212,6 @@ def get_logs_by_date_range(
 
 def get_today_smoke_count(user_id: int, today_str: str) -> float:
     """Sum of smoke_count for a given day (today_str like '2026-03-01')."""
-    init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(smoke_count), 0) as total "
@@ -226,7 +223,6 @@ def get_today_smoke_count(user_id: int, today_str: str) -> float:
 
 def get_today_patch_count(user_id: int, today_str: str) -> int:
     """Count of back_patch entries for a given day."""
-    init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(back_patch), 0) as total "
@@ -238,7 +234,6 @@ def get_today_patch_count(user_id: int, today_str: str) -> int:
 
 def get_today_tea_count(user_id: int, today_str: str) -> int:
     """Sum of tea_count for a given day (today_str like '2026-03-01')."""
-    init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(tea_count), 0) as total "
@@ -250,7 +245,6 @@ def get_today_tea_count(user_id: int, today_str: str) -> int:
 
 def get_today_water_glasses(user_id: int, today_str: str) -> float:
     """Sum of water_glasses for a given day (today_str like '2026-03-01')."""
-    init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(water_glasses), 0) as total "
@@ -314,7 +308,6 @@ def insert_medication(
 def get_recent_medications(
     limit: int = 10, user_id: Optional[int] = None,
 ) -> list[sqlite3.Row]:
-    init_db()
     with get_connection() as conn:
         if user_id is not None:
             cur = conn.execute(
@@ -365,7 +358,6 @@ def insert_exercise(
 def get_recent_exercises(
     limit: int = 10, user_id: Optional[int] = None,
 ) -> list[sqlite3.Row]:
-    init_db()
     with get_connection() as conn:
         if user_id is not None:
             cur = conn.execute(
@@ -391,7 +383,6 @@ _SETTINGS_DEFAULTS = {
 
 
 def get_user_settings(user_id: int) -> dict:
-    init_db()
     with get_connection() as conn:
         cur = conn.execute(
             "SELECT * FROM user_settings WHERE user_id = ?", (user_id,),
@@ -403,7 +394,6 @@ def get_user_settings(user_id: int) -> dict:
 
 
 def set_user_settings(user_id: int, **kwargs) -> None:
-    init_db()
     current = get_user_settings(user_id)
     current.update(kwargs)
     with get_connection() as conn:
@@ -527,7 +517,6 @@ def export_logs_csv(
     end_date: Optional[str] = None,
 ) -> str:
     """Return CSV string of all logs for user within optional date range."""
-    init_db()
     with get_connection() as conn:
         query = "SELECT * FROM logs WHERE user_id = ?"
         params: list = [user_id]

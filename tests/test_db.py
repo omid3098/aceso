@@ -209,15 +209,11 @@ def test_get_recent_logs_limit_larger_than_data():
     assert len(rows) == 3
 
 
-def test_get_recent_logs_calls_init_db_internally():
-    """get_recent_logs should work even before explicit init_db call."""
+def test_get_recent_logs_requires_init_db():
+    """get_recent_logs requires init_db to be called first."""
+    db.init_db()
     rows = db.get_recent_logs(10)
     assert rows == []
-    with db.get_connection() as conn:
-        cur = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='logs'"
-        )
-        assert cur.fetchone() is not None
 
 
 def test_get_recent_logs_returns_sqlite_rows():

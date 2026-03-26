@@ -146,6 +146,10 @@ def save_env(data: dict[str, str]) -> None:
             v = f'"{v}"'
         lines.append(f"{k}={v}")
     ENV_FILE.write_text("\n".join(lines) + "\n")
+    try:
+        ENV_FILE.chmod(0o600)
+    except OSError:
+        pass  # Windows or other platforms without chmod support
 
 
 def do_update_config(console):

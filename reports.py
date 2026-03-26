@@ -13,6 +13,13 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    from matplotlib import font_manager as _fm
+    # Try to find a font that supports Farsi/Arabic glyphs
+    for _family in ("B Nazanin", "Vazirmatn", "Tahoma", "Arial", "DejaVu Sans"):
+        _matches = _fm.findSystemFonts(fontpaths=None)
+        if any(_family.lower() in f.lower() for f in _matches):
+            matplotlib.rcParams["font.family"] = _family
+            break
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False

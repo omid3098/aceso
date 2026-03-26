@@ -713,6 +713,37 @@ def _format_last_log(row, user_id: int) -> str:
 # Command handlers
 # ---------------------------------------------------------------------------
 
+@bot.message_handler(commands=["help"])
+def handle_help(message: types.Message) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    bot.send_message(
+        message.chat.id,
+        "📖 <b>راهنمای دستورات</b>\n\n"
+        "📝 <b>ثبت داده</b> — از منوی پایین\n"
+        "🔥 <b>درد الان</b> — ثبت سریع درد\n"
+        "🚬 <b>سیگار</b> / 🍵 <b>چای</b> / 💧 <b>آب</b> — ثبت سریع\n"
+        "📋 <b>بیشتر</b> — گرمکن، ماساژ، پریود، ...\n\n"
+        "<b>دستورات:</b>\n"
+        "/cancel — لغو عملیات فعلی\n"
+        "/undo — حذف آخرین لاگ\n"
+        "/edit field value — ویرایش آخرین لاگ\n"
+        "/today — خلاصه امروز\n"
+        "/report [N] — نمودار N روز اخیر\n"
+        "/history [N] — تاریخچه N روز اخیر\n"
+        "/monthly — گزارش ماهانه\n"
+        "/insights — بینش‌ها و همبستگی‌ها\n"
+        "/export — خروجی CSV\n"
+        "/backup — بکاپ دیتابیس\n"
+        "/streak — استریک ثبت داده\n"
+        "/smokes — سیگار امروز\n"
+        "/timezone [zone] — تنظیم تایم‌زون\n"
+        "/setreminder noon|night HH:MM — تنظیم یادآور\n"
+        "/help — همین راهنما",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
 @bot.message_handler(commands=["start"])
 def handle_start(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
@@ -1407,17 +1438,17 @@ def _send_chart(chat_id: int, user_id: int, days: int = 7) -> None:
     pain_chart = reports.generate_trend_chart(
         logs,
         ["back_pain", "headache", "sleep_quality"],
-        title=f"Pain & Sleep — last {days} days",
+        title=f"درد و خواب — {days} روز اخیر",
     )
     mood_chart = reports.generate_trend_chart(
         logs,
         ["peace_level", "sleep_hours"],
-        title=f"Peace & Sleep Duration — last {days} days",
+        title=f"آرامش و مدت خواب — {days} روز اخیر",
     )
     lifestyle_chart = reports.generate_trend_chart(
         logs,
         ["phone_hours", "computer_hours", "sitting_hours", "water_amount", "knitting_hours"],
-        title=f"Lifestyle — last {days} days",
+        title=f"سبک زندگی — {days} روز اخیر",
     )
 
     for chart_bytes in (pain_chart, mood_chart, lifestyle_chart):
@@ -1616,11 +1647,29 @@ def main() -> None:
     for uid in ADMIN_IDS:
         _schedule_user_reminders(scheduler, uid)
 
+    _heartbeat_path = Path(__file__).resolve().parent / ".heartbeat"
+
+    def _write_heartbeat():
+        _heartbeat_path.write_text(datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S"))
+
+    scheduler.add_job(_write_heartbeat, "interval", minutes=5, id="heartbeat")
     scheduler.add_job(send_daily_summary, "cron", hour=23, minute=0)
     scheduler.add_job(send_weekly_report, "cron", day_of_week="sun", hour=10, minute=0)
     scheduler.add_job(run_daily_backup, "cron", hour=3, minute=0)
     scheduler.start()
+    _write_heartbeat()  # initial heartbeat
     logger.info("Scheduler started with per-user reminders, tz=%s", tz)
+
+    import signal
+
+    def _shutdown(signum, frame):
+        logger.info("Received signal %s, shutting down...", signum)
+        bot.stop_polling()
+        scheduler.shutdown(wait=False)
+        logger.info("Shutdown complete.")
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
 
     logger.info("Bot polling started.")
     bot.infinity_polling(timeout=60, long_polling_timeout=30)

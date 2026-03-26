@@ -67,7 +67,33 @@ CREATE TABLE IF NOT EXISTS sessions (
     data TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS beverage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    beverage_id TEXT NOT NULL,
+    servings REAL NOT NULL DEFAULT 1,
+    water_ml REAL NOT NULL,
+    caffeine_mg REAL NOT NULL,
+    sugar_g REAL NOT NULL,
+    calories REAL NOT NULL,
+    date TEXT NOT NULL,
+    timestamp TEXT NOT NULL
+);
 """
+
+BEVERAGES = {
+    "water":     {"emoji": "💧", "label_fa": "آب",       "water_ml": 125, "caffeine_mg": 0,  "sugar_g": 0,  "calories": 0},
+    "tea":       {"emoji": "🍵", "label_fa": "چای",      "water_ml": 124, "caffeine_mg": 26, "sugar_g": 0,  "calories": 1},
+    "green_tea": {"emoji": "🍵", "label_fa": "چای سبز",  "water_ml": 124, "caffeine_mg": 15, "sugar_g": 0,  "calories": 1},
+    "coffee":    {"emoji": "☕", "label_fa": "قهوه",     "water_ml": 124, "caffeine_mg": 50, "sugar_g": 0,  "calories": 1},
+    "soda":      {"emoji": "🥤", "label_fa": "نوشابه",   "water_ml": 112, "caffeine_mg": 8,  "sugar_g": 13, "calories": 53},
+    "na_beer":   {"emoji": "🍺", "label_fa": "آبجو",     "water_ml": 117, "caffeine_mg": 0,  "sugar_g": 4,  "calories": 18},
+    "delster":   {"emoji": "🍺", "label_fa": "دلستر",    "water_ml": 112, "caffeine_mg": 0,  "sugar_g": 10, "calories": 45},
+    "juice":     {"emoji": "🧃", "label_fa": "آبمیوه",   "water_ml": 110, "caffeine_mg": 0,  "sugar_g": 11, "calories": 56},
+    "milk":      {"emoji": "🥛", "label_fa": "شیر",      "water_ml": 110, "caffeine_mg": 0,  "sugar_g": 6,  "calories": 78},
+    "herbal":    {"emoji": "🌿", "label_fa": "دمنوش",    "water_ml": 124, "caffeine_mg": 0,  "sugar_g": 0,  "calories": 1},
+}
 
 _MIGRATIONS = {
     "logs": {

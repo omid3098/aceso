@@ -57,6 +57,25 @@ def test_init_db_creates_all_tables():
         assert expected in tables
 
 
+def test_init_db_creates_beverage_log_table():
+    db.init_db()
+    with db.get_connection() as conn:
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='beverage_log'"
+        )
+        assert cur.fetchone() is not None
+
+
+def test_beverage_log_table_has_expected_columns():
+    db.init_db()
+    with db.get_connection() as conn:
+        cur = conn.execute("PRAGMA table_info(beverage_log)")
+        columns = {row[1] for row in cur.fetchall()}
+    expected = {"id", "user_id", "beverage_id", "servings", "water_ml",
+                "caffeine_mg", "sugar_g", "calories", "date", "timestamp"}
+    assert expected == columns
+
+
 def test_init_db_is_idempotent():
     db.init_db()
     db.init_db()

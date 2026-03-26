@@ -254,6 +254,17 @@ def get_today_water_glasses(user_id: int, today_str: str) -> float:
         return cur.fetchone()["total"]
 
 
+def has_today_sleep_data(user_id: int, today_str: str) -> bool:
+    """Check if sleep data was already logged today."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT 1 FROM logs WHERE user_id = ? AND timestamp LIKE ? "
+            "AND sleep_quality IS NOT NULL LIMIT 1",
+            (user_id, f"{today_str}%"),
+        )
+        return cur.fetchone() is not None
+
+
 def delete_last_log(user_id: int) -> bool:
     """Delete the most recent log for the user. Returns True if deleted."""
     with get_connection() as conn:

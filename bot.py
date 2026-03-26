@@ -464,9 +464,11 @@ def ask_question(chat_id: int, step: str, user_id: int = 0) -> None:
 _MASSAGE_DISPLAY = {"firm": "💪 محکم", "gentle": "🤲 آروم", "none": "❌ نبوده"}
 
 
-def _format_confirmation(data: dict, flow: str) -> str:
+def _format_confirmation(data: dict, flow: str, first_step: str | None = None) -> str:
     """Build a summary of collected data for user confirmation."""
     steps = FLOWS.get(flow, [])
+    if first_step and first_step in steps:
+        steps = steps[steps.index(first_step):]
     lines = ["📋 <b>خلاصه داده‌ها:</b>\n"]
     for step in steps:
         label = STEP_LABELS.get(step, step)
@@ -642,7 +644,7 @@ def advance_flow(user_id: int, chat_id: int, value) -> None:
         if flow in ("log", "pain_now"):
             state["step"] = "_confirm"
             _persist_state(user_id)
-            summary = _format_confirmation(state["data"], flow)
+            summary = _format_confirmation(state["data"], flow, state.get("first_step"))
             bot.send_message(chat_id, summary, reply_markup=_confirm_kb())
         else:
             _finish_flow(user_id, chat_id, state["data"], flow)
@@ -1216,7 +1218,8 @@ def handle_value_callback(call: types.CallbackQuery) -> None:
             _clear_state(call.from_user.id)
             bot.send_message(call.message.chat.id, "❌ لغو شد.", reply_markup=main_menu_keyboard())
             return
-        if current_idx == 0:
+        effective_first = state.get("first_step", flow_steps[0])
+        if current_step == effective_first:
             _clear_state(call.from_user.id)
             bot.send_message(call.message.chat.id, "❌ لغو شد.", reply_markup=main_menu_keyboard())
             return
@@ -1300,7 +1303,7 @@ def handle_more_or_finish(call: types.CallbackQuery) -> None:
         bot.answer_callback_query(call.id, "✅")
         state["step"] = "_confirm"
         _persist_state(call.from_user.id)
-        summary = _format_confirmation(state["data"], state["flow"])
+        summary = _format_confirmation(state["data"], state["flow"], state.get("first_step"))
         bot.send_message(call.message.chat.id, summary, reply_markup=_confirm_kb())
     else:
         bot.answer_callback_query(call.id, "📝 ادامه...")
@@ -1627,8 +1630,16 @@ def _send_reminder(uid: int, greeting: str) -> None:
             logger.info("Skipping reminder for user %s — active flow.", uid)
             return
     try:
-        first_step = FLOWS["log"][0]
-        user_states[uid] = {"flow": "log", "step": first_step, "data": {}}
+        today_str = _today_str(uid)
+        if database.has_today_sleep_data(uid, today_str):
+            first_step = "back_pain"
+        else:
+            first_step = FLOWS["log"][0]
+
+        user_states[uid] = {
+            "flow": "log", "step": first_step,
+            "data": {}, "first_step": first_step,
+        }
         _persist_state(uid)
         bot.send_message(uid, greeting)
         ask_question(uid, first_step, uid)

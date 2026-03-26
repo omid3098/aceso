@@ -646,6 +646,23 @@ def test_get_today_water_glasses_zero_when_none():
     assert db.get_today_water_glasses(1, "2026-03-01") == 0
 
 
+def test_has_today_sleep_data_true():
+    db.init_db()
+    db.insert_log(user_id=1, sleep_quality=7, timestamp=datetime(2026, 3, 1, 12, 0))
+    assert db.has_today_sleep_data(1, "2026-03-01") is True
+
+
+def test_has_today_sleep_data_false_no_logs():
+    db.init_db()
+    assert db.has_today_sleep_data(1, "2026-03-01") is False
+
+
+def test_has_today_sleep_data_false_no_sleep():
+    db.init_db()
+    db.insert_log(user_id=1, back_pain=5, timestamp=datetime(2026, 3, 1, 12, 0))
+    assert db.has_today_sleep_data(1, "2026-03-01") is False
+
+
 def test_insert_log_tea_water_ovulation_knitting():
     db.init_db()
     row_id = db.insert_log(

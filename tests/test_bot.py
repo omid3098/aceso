@@ -1368,6 +1368,33 @@ def test_send_reminder_skips_active_flow(monkeypatch, isolated_db):
     mock_send.assert_not_called()
 
 
+def test_send_reminder_skips_sleep_when_already_logged(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.user_states.pop(42, None)
+    db.insert_log(user_id=42, sleep_quality=7, sleep_hours=8)
+    bot._send_reminder(42, "🌙 test")
+    state = bot.user_states[42]
+    assert state["step"] == "back_pain"
+    assert state["first_step"] == "back_pain"
+    bot._clear_state(42)
+
+
+def test_send_reminder_asks_sleep_when_not_logged(monkeypatch, isolated_db):
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.user_states.pop(42, None)
+    bot._send_reminder(42, "🌞 test")
+    state = bot.user_states[42]
+    assert state["step"] == "sleep_quality"
+    assert state["first_step"] == "sleep_quality"
+    bot._clear_state(42)
+
+
 def test_send_daily_summary(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
@@ -1503,6 +1530,23 @@ def test_undo_callback_removes_current_step_data(monkeypatch, isolated_db):
     assert bot.user_states[42]["step"] == "sleep_hours"
     assert "sleep_hours" not in bot.user_states[42]["data"]
     assert bot.user_states[42]["data"]["sleep_quality"] == 7
+
+
+def test_undo_on_first_step_when_sleep_skipped(monkeypatch, isolated_db):
+    """Undo on back_pain when sleep was skipped should cancel flow, not go to sleep_hours."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {
+        "flow": "log", "step": "back_pain", "data": {},
+        "first_step": "back_pain",
+    }
+    bot.handle_value_callback(_make_callback(42, "val_undo"))
+    assert 42 not in bot.user_states
 
 
 # ── Task 4: Undo button from main menu ───────────────────────────────────────

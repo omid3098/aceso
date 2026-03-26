@@ -400,8 +400,7 @@ def test_main_menu_keyboard():
     assert "📊 گزارش" in texts
     assert "🔥 درد الان" in texts
     assert "🚬 سیگار" in texts
-    assert "🍵 چای" in texts
-    assert "💧 آب" in texts
+    assert "🥤 نوشیدنی" in texts
     assert "🏃 ورزش" in texts
     assert "📋 بیشتر" in texts
 
@@ -416,7 +415,7 @@ def test_main_menu_visual_hierarchy():
     assert row_texts[0] == ["📝 ثبت داده"]
     assert row_texts[1] == ["📊 گزارش"]
     assert len(row_texts[2]) == 2  # درد الان, سیگار
-    assert len(row_texts[3]) == 3  # چای, آب, ورزش
+    assert len(row_texts[3]) == 2  # نوشیدنی, ورزش
     assert "📋 بیشتر" in row_texts[4]
     assert "↩️" in row_texts[4]
     assert len(row_texts[4]) == 2
@@ -644,9 +643,9 @@ def test_handle_skip_advances_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {"water_amount": 8}}
+    bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {}}
     bot.handle_skip(_make_message(42, "/skip"))
-    assert bot.user_states[42]["step"] == "caffeine_amount"
+    assert bot.user_states[42]["step"] == "phone_hours"
 
 
 def test_handle_skip_at_confirm_step(monkeypatch):
@@ -860,32 +859,36 @@ def test_handle_exercise_starts_flow(monkeypatch, isolated_db):
     assert bot.user_states[42]["flow"] == "exercise"
 
 
-def test_handle_tea_one_tap(monkeypatch, isolated_db):
+def test_handle_beverage_menu(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.handle_tea(_make_message(42, "🍵 چای"))
+    bot.handle_beverage_menu(_make_message(42, "🥤 نوشیدنی"))
     assert 42 not in bot.user_states
-    logs = db.get_recent_logs(1, user_id=42)
-    assert len(logs) == 1
-    assert logs[0]["tea_count"] == 1
+    mock_send.assert_called_once()
     sent_text = mock_send.call_args[0][1]
-    assert "چای" in sent_text
+    assert "نوشیدنی" in sent_text
 
 
-def test_handle_water_one_tap(monkeypatch, isolated_db):
-    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
-    monkeypatch.setattr(bot, "DEFAULT_TZ", "UTC")
-    mock_send = MagicMock()
-    monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.handle_water(_make_message(42, "💧 آب"))
-    assert 42 not in bot.user_states
-    logs = db.get_recent_logs(1, user_id=42)
-    assert len(logs) == 1
-    assert logs[0]["water_glasses"] == pytest.approx(0.5)
-    sent_text = mock_send.call_args[0][1]
-    assert "آب" in sent_text
+def test_beverage_keyboard_layout(isolated_db):
+    kb = bot._beverage_kb(user_id=1)
+    assert hasattr(kb, "keyboard")
+    assert len(kb.keyboard[0]) == 2    # water, tea
+    assert len(kb.keyboard[1]) == 3    # coffee, soda, na_beer
+    assert len(kb.keyboard[2]) == 3    # delster, juice, milk
+    assert len(kb.keyboard[3]) == 2    # green_tea, herbal
+
+
+def test_main_menu_has_beverage_button():
+    kb = bot.main_menu_keyboard()
+    all_buttons = [
+        btn.text if hasattr(btn, "text") else btn.get("text", "")
+        for row in kb.keyboard for btn in row
+    ]
+    assert "🥤 نوشیدنی" in all_buttons
+    assert "🍵 چای" not in all_buttons
+    assert "💧 آب" not in all_buttons
 
 
 def test_handle_more_callback_patch(monkeypatch, isolated_db):
@@ -940,7 +943,7 @@ def test_handle_text_in_flow(monkeypatch, isolated_db):
     monkeypatch.setattr(bot, "ADMIN_IDS", [42])
     mock_send = MagicMock()
     monkeypatch.setattr(bot.bot, "send_message", mock_send)
-    bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {"water_amount": 8}}
+    bot.user_states[42] = {"flow": "log", "step": "food_details", "data": {}}
     bot.handle_text(_make_message(42, "rice and chicken"))
     assert bot.user_states[42]["data"]["food_details"] == "rice and chicken"
 
@@ -1444,7 +1447,7 @@ def test_generate_feedback_with_data(isolated_db):
     bot.handle_today_cmd, bot.handle_insights_cmd, bot.handle_export_cmd,
     bot.handle_backup_cmd, bot.handle_monthly_cmd,
     bot.handle_log, bot.handle_pain_now,
-    bot.handle_cigarette, bot.handle_tea, bot.handle_water,
+    bot.handle_cigarette, bot.handle_beverage_menu,
     bot.handle_medication, bot.handle_exercise,
     bot.handle_more_menu,
     bot.handle_report_menu, bot.handle_undo_button, bot.handle_text,

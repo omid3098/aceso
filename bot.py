@@ -90,7 +90,7 @@ FLOWS: dict[str, list[str]] = {
     "log": [
         "sleep_quality", "sleep_hours", "back_pain", "headache",
         "peace_level",
-        "water_amount", "food_details", "caffeine_amount",
+        "food_details",
         "phone_hours", "computer_hours", "sitting_hours", "knitting_hours", "notes",
     ],
     "medication": ["med_name", "med_dosage"],
@@ -113,8 +113,6 @@ STEP_VALID_RANGE: dict[str, tuple[float, float]] = {
     "headache": (1, 10),
     "peace_level": (1, 10),
     "sleep_hours": (0, 24),
-    "water_amount": (0, 50),
-    "caffeine_amount": (0, 20),
     "phone_hours": (0, 24),
     "computer_hours": (0, 24),
     "sitting_hours": (0, 24),
@@ -132,9 +130,7 @@ QUESTIONS: dict[str, str] = {
     "back_pain":        "🦴 <b>الان کمردردت چقدره؟</b>\n(۱ = بدون درد، ۱۰ = خیلی شدید)",
     "headache":         "🤕 <b>الان سردرد داری؟</b>\n(۱ = ندارم، ۱۰ = خیلی شدید)",
     "peace_level":      "🧘 <b>حس آرامشت الان چقدره؟</b>\n(۱ = اصلاً، ۱۰ = خیلی زیاد)",
-    "water_amount":     "💧 <b>امروز چند لیوان آب خوردی؟</b>",
     "food_details":     "🍽 <b>چی خوردی؟</b>\n(خلاصه بنویس یا رد شو)",
-    "caffeine_amount":  "☕ <b>چقدر کافئین مصرف کردی؟</b>\n(۰=هیچ، ۱=یه فنجون چای/قهوه، ۲=دوتا، ...)",
     "phone_hours":      "📱 <b>چند ساعت گوشی دستت بوده؟</b>",
     "computer_hours":   "💻 <b>چند ساعت پای سیستم بودی؟</b>",
     "sitting_hours":    "🪑 <b>چند ساعت نشستی؟</b>",
@@ -157,9 +153,7 @@ STEP_LABELS: dict[str, str] = {
     "back_pain": "🦴 کمردرد",
     "headache": "🤕 سردرد",
     "peace_level": "🧘 آرامش",
-    "water_amount": "💧 آب",
     "food_details": "🍽 غذا",
-    "caffeine_amount": "☕ کافئین",
     "phone_hours": "📱 گوشی",
     "computer_hours": "💻 سیستم",
     "sitting_hours": "🪑 نشستن",
@@ -178,8 +172,6 @@ STEP_UNITS: dict[str, str] = {
     "back_pain": "/10",
     "headache": "/10",
     "peace_level": "/10",
-    "water_amount": " لیوان",
-    "caffeine_amount": "",
     "phone_hours": " ساعت",
     "computer_hours": " ساعت",
     "sitting_hours": " ساعت",
@@ -359,14 +351,39 @@ def main_menu_keyboard() -> types.ReplyKeyboardMarkup:
         types.KeyboardButton("🚬 سیگار"),
     )
     markup.row(
-        types.KeyboardButton("🍵 چای"),
-        types.KeyboardButton("💧 آب"),
+        types.KeyboardButton("🥤 نوشیدنی"),
         types.KeyboardButton("🏃 ورزش"),
     )
     markup.row(
         types.KeyboardButton("📋 بیشتر"),
         types.KeyboardButton("↩️"),
     )
+    return markup
+
+
+_BEVERAGE_LAYOUT = [
+    ["water", "tea"],
+    ["coffee", "soda", "na_beer"],
+    ["delster", "juice", "milk"],
+    ["green_tea", "herbal"],
+]
+
+
+def _beverage_kb(user_id: int) -> types.InlineKeyboardMarkup:
+    """Build inline keyboard for beverage selection with today's counts."""
+    today = _today_str(user_id)
+    totals = database.get_today_beverage_totals(user_id, today)
+    per_bev = totals["per_beverage"]
+
+    markup = types.InlineKeyboardMarkup()
+    for row_ids in _BEVERAGE_LAYOUT:
+        buttons = []
+        for bev_id in row_ids:
+            bev = database.BEVERAGES[bev_id]
+            count = int(per_bev.get(bev_id, 0))
+            label = f"{bev['emoji']} {bev['label_fa']} ({count})"
+            buttons.append(types.InlineKeyboardButton(label, callback_data=f"bev_{bev_id}"))
+        markup.row(*buttons)
     return markup
 
 
@@ -437,10 +454,6 @@ def ask_question(chat_id: int, step: str, user_id: int = 0) -> None:
         bot.send_message(chat_id, question, reply_markup=_scale_kb(10))
     elif step == "sleep_hours":
         bot.send_message(chat_id, question, reply_markup=_sleep_hours_kb())
-    elif step == "caffeine_amount":
-        bot.send_message(chat_id, question, reply_markup=_count_kb(10))
-    elif step == "water_amount":
-        bot.send_message(chat_id, question, reply_markup=_count_kb(20))
     elif step in ("phone_hours", "computer_hours", "sitting_hours", "knitting_hours", "heater_hours"):
         bot.send_message(chat_id, question, reply_markup=_hours_kb())
     elif step in ("period_status", "ovulation_status"):
@@ -510,12 +523,6 @@ def _generate_feedback(user_id: int, data: dict, flow: str) -> str:
         elif avg is not None and bp <= 2:
             feedback_parts.append("کمردرد خیلی کمه، عالیه! 🎉")
 
-    wa = data.get("water_amount")
-    if wa is not None:
-        avg = _recent_avg("water_amount")
-        if avg and wa > avg + 1:
-            feedback_parts.append(f"آب بیشتری از میانگینت ({avg}) خوردی! 💧👏")
-
     sq = data.get("sleep_quality")
     if sq is not None and sq >= 8:
         feedback_parts.append("کیفیت خوابت عالی بوده! 😴✨")
@@ -542,8 +549,6 @@ def _finish_flow(user_id: int, chat_id: int, data: dict, flow: str) -> None:
             peace_level=data.get("peace_level"),
             sleep_quality=data.get("sleep_quality"),
             sleep_hours=data.get("sleep_hours"),
-            water_amount=data.get("water_amount"),
-            caffeine_amount=data.get("caffeine_amount"),
             sitting_hours=data.get("sitting_hours"),
             phone_hours=data.get("phone_hours"),
             computer_hours=data.get("computer_hours"),
@@ -800,7 +805,7 @@ def handle_undo(message: types.Message) -> None:
 
 _EDITABLE_FIELDS = {
     "back_pain", "headache", "peace_level", "sleep_quality", "sleep_hours",
-    "water_amount", "caffeine_amount", "sitting_hours", "phone_hours",
+    "sitting_hours", "phone_hours",
     "computer_hours", "knitting_hours", "smoke_count",
 }
 
@@ -1055,32 +1060,15 @@ def handle_cigarette(message: types.Message) -> None:
     )
 
 
-@bot.message_handler(func=lambda m: m.text == "🍵 چای")
-def handle_tea(message: types.Message) -> None:
+@bot.message_handler(func=lambda m: m.text == "🥤 نوشیدنی")
+def handle_beverage_menu(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
         return
     uid = message.from_user.id
-    database.insert_log(user_id=uid, tea_count=1)
-    today_total = database.get_today_tea_count(uid, _today_str(uid))
     bot.send_message(
         message.chat.id,
-        f"🍵 <b>یک لیوان چای ثبت شد.</b>\nامروز: {today_total} لیوان",
-        reply_markup=main_menu_keyboard(),
-    )
-
-
-@bot.message_handler(func=lambda m: m.text == "💧 آب")
-def handle_water(message: types.Message) -> None:
-    if not is_admin(message.from_user.id):
-        return
-    uid = message.from_user.id
-    database.insert_log(user_id=uid, water_glasses=0.5)
-    today_total = database.get_today_water_glasses(uid, _today_str(uid))
-    display = int(today_total) if today_total == int(today_total) else today_total
-    bot.send_message(
-        message.chat.id,
-        f"💧 <b>نیم لیوان آب ثبت شد.</b>\nامروز: {display} لیوان",
-        reply_markup=main_menu_keyboard(),
+        "🥤 <b>نوشیدنی انتخاب کن:</b>",
+        reply_markup=_beverage_kb(uid),
     )
 
 
@@ -1163,6 +1151,32 @@ def handle_text(message: types.Message) -> None:
 # ---------------------------------------------------------------------------
 # Callback handlers
 # ---------------------------------------------------------------------------
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bev_"))
+def handle_beverage_callback(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "دسترسی نداری.")
+        return
+    bev_id = call.data[4:]
+    if bev_id not in database.BEVERAGES:
+        bot.answer_callback_query(call.id, "نوشیدنی نامعتبر.")
+        return
+    uid = call.from_user.id
+    database.insert_beverage(user_id=uid, beverage_id=bev_id)
+    today = _today_str(uid)
+    totals = database.get_today_beverage_totals(uid, today)
+    count = int(totals["per_beverage"].get(bev_id, 0))
+    bev = database.BEVERAGES[bev_id]
+    bot.answer_callback_query(call.id, f"{bev['emoji']} +۱")
+    try:
+        bot.edit_message_reply_markup(
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=_beverage_kb(uid),
+        )
+    except Exception:
+        pass
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("val_"))
 def handle_value_callback(call: types.CallbackQuery) -> None:

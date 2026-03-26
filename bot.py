@@ -734,7 +734,7 @@ def handle_help(message: types.Message) -> None:
         "📖 <b>راهنمای دستورات</b>\n\n"
         "📝 <b>ثبت داده</b> — از منوی پایین\n"
         "🔥 <b>درد الان</b> — ثبت سریع درد\n"
-        "🚬 <b>سیگار</b> / 🍵 <b>چای</b> / 💧 <b>آب</b> — ثبت سریع\n"
+        "🚬 <b>سیگار</b> / 🥤 <b>نوشیدنی</b> — ثبت سریع\n"
         "📋 <b>بیشتر</b> — گرمکن، ماساژ، پریود، ...\n\n"
         "<b>دستورات:</b>\n"
         "/cancel — لغو عملیات فعلی\n"
@@ -1761,6 +1761,9 @@ def main() -> None:
         return
 
     database.init_db()
+    migrated = database.migrate_legacy_beverages()
+    if migrated:
+        logger.info("Migrated %d legacy beverage records.", migrated)
     logger.info("DB initialized. Admin IDs: %s", ADMIN_IDS)
 
     _restore_sessions()

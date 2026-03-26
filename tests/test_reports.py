@@ -360,3 +360,32 @@ def test_daily_summary_shows_beverages():
 def test_daily_summary_no_beverages():
     result = reports.generate_daily_summary([], [], [])
     assert "نوشیدنی" not in result
+
+
+# ── Task 7: Weekly/monthly reports and correlations with beverages ─────────────
+
+def test_weekly_report_with_beverage_totals():
+    logs = [{"timestamp": "2026-03-20 12:00:00", "back_pain": 3, "headache": 2,
+             "sleep_quality": 7, "peace_level": 6, "sleep_hours": 7,
+             "phone_hours": 2, "computer_hours": 4, "sitting_hours": 6,
+             "smoke_count": None, "knitting_hours": None,
+             "water_amount": None, "caffeine_amount": None,
+             "tea_count": None, "water_glasses": None}]
+    bev_totals = {"total_water_ml": 5000, "total_caffeine_mg": 300, "total_sugar_g": 50}
+    prev_bev = {"total_water_ml": 4000, "total_caffeine_mg": 250, "total_sugar_g": 40}
+    result = reports.generate_weekly_report(logs, [], [], [],
+                                            beverage_totals=bev_totals, prev_beverage_totals=prev_bev)
+    assert "آب" in result
+    assert "کافئین" in result
+    assert "قند" in result
+
+
+def test_correlations_with_beverage_data():
+    daily_bev = {}
+    logs = []
+    for i in range(8):
+        day = f"2026-03-{10+i:02d}"
+        daily_bev[day] = {"total_water_ml": 500 + i * 100, "total_caffeine_mg": 50 + i * 20, "total_sugar_g": 10 + i * 5}
+        logs.append({"timestamp": f"{day} 12:00:00", "headache": max(1, 8 - i), "back_pain": 5})
+    result = reports.compute_correlations(logs, daily_beverage=daily_bev)
+    assert isinstance(result, list)

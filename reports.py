@@ -155,6 +155,9 @@ def generate_weekly_report(
     prev_logs: list,
     medications: list,
     exercises: list,
+    *,
+    beverage_totals: dict | None = None,
+    prev_beverage_totals: dict | None = None,
 ) -> str:
     """Return a formatted text report comparing this week to the previous."""
 
@@ -175,16 +178,19 @@ def generate_weekly_report(
     smoke_display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
     lines.append(f"🚬 سیگار: {smoke_display} نخ{smoke_arrow}")
 
-    total_tea = sum(_get_val(r, "tea_count") for r in logs if _get_val(r, "tea_count"))
-    prev_tea = sum(_get_val(r, "tea_count") for r in prev_logs if _get_val(r, "tea_count"))
-    tea_arrow = _trend_arrow(total_tea, prev_tea)
-    lines.append(f"🍵 چای: {total_tea} لیوان{tea_arrow}")
-
-    total_wg = sum(_get_val(r, "water_glasses") for r in logs if _get_val(r, "water_glasses"))
-    prev_wg = sum(_get_val(r, "water_glasses") for r in prev_logs if _get_val(r, "water_glasses"))
-    wg_arrow = _trend_arrow(total_wg, prev_wg)
-    wg_display = int(total_wg) if total_wg == int(total_wg) else total_wg
-    lines.append(f"💧 آب (دکمه): {wg_display} لیوان{wg_arrow}")
+    if beverage_totals:
+        days = max(1, len(set(
+            _get_val(r, "timestamp")[:10] for r in logs if _get_val(r, "timestamp")
+        ))) if logs else 7
+        avg_water = round(beverage_totals.get("total_water_ml", 0) / days)
+        avg_caffeine = round(beverage_totals.get("total_caffeine_mg", 0) / days)
+        avg_sugar = round(beverage_totals.get("total_sugar_g", 0) / days)
+        prev_avg_water = round(prev_beverage_totals.get("total_water_ml", 0) / days) if prev_beverage_totals else None
+        prev_avg_caffeine = round(prev_beverage_totals.get("total_caffeine_mg", 0) / days) if prev_beverage_totals else None
+        prev_avg_sugar = round(prev_beverage_totals.get("total_sugar_g", 0) / days) if prev_beverage_totals else None
+        lines.append(f"💧 آب (میانگین): {avg_water}ml/روز{_trend_arrow(avg_water, prev_avg_water)}")
+        lines.append(f"☕ کافئین (میانگین): {avg_caffeine}mg/روز{_trend_arrow(avg_caffeine, prev_avg_caffeine)}")
+        lines.append(f"🍬 قند (میانگین): {avg_sugar}g/روز{_trend_arrow(avg_sugar, prev_avg_sugar)}")
 
     if medications:
         lines.append(f"\n💊 دارو: {len(medications)} بار مصرف")
@@ -200,6 +206,9 @@ def generate_monthly_report(
     prev_logs: list,
     medications: list,
     exercises: list,
+    *,
+    beverage_totals: dict | None = None,
+    prev_beverage_totals: dict | None = None,
 ) -> str:
     """Return a formatted text report comparing this month to the previous."""
 
@@ -223,16 +232,19 @@ def generate_monthly_report(
     smoke_display = int(total_smokes) if total_smokes == int(total_smokes) else total_smokes
     lines.append(f"🚬 سیگار: {smoke_display} نخ{smoke_arrow}")
 
-    total_tea = sum(_get_val(r, "tea_count") for r in logs if _get_val(r, "tea_count"))
-    prev_tea = sum(_get_val(r, "tea_count") for r in prev_logs if _get_val(r, "tea_count"))
-    tea_arrow = _trend_arrow(total_tea, prev_tea)
-    lines.append(f"🍵 چای: {total_tea} لیوان{tea_arrow}")
-
-    total_water_glasses = sum(_get_val(r, "water_glasses") for r in logs if _get_val(r, "water_glasses"))
-    prev_water_glasses = sum(_get_val(r, "water_glasses") for r in prev_logs if _get_val(r, "water_glasses"))
-    water_glasses_arrow = _trend_arrow(total_water_glasses, prev_water_glasses)
-    wg_display = int(total_water_glasses) if total_water_glasses == int(total_water_glasses) else total_water_glasses
-    lines.append(f"💧 آب (دکمه): {wg_display} لیوان{water_glasses_arrow}")
+    if beverage_totals:
+        days = max(1, len(set(
+            _get_val(r, "timestamp")[:10] for r in logs if _get_val(r, "timestamp")
+        ))) if logs else 30
+        avg_water = round(beverage_totals.get("total_water_ml", 0) / days)
+        avg_caffeine = round(beverage_totals.get("total_caffeine_mg", 0) / days)
+        avg_sugar = round(beverage_totals.get("total_sugar_g", 0) / days)
+        prev_avg_water = round(prev_beverage_totals.get("total_water_ml", 0) / days) if prev_beverage_totals else None
+        prev_avg_caffeine = round(prev_beverage_totals.get("total_caffeine_mg", 0) / days) if prev_beverage_totals else None
+        prev_avg_sugar = round(prev_beverage_totals.get("total_sugar_g", 0) / days) if prev_beverage_totals else None
+        lines.append(f"💧 آب (میانگین): {avg_water}ml/روز{_trend_arrow(avg_water, prev_avg_water)}")
+        lines.append(f"☕ کافئین (میانگین): {avg_caffeine}mg/روز{_trend_arrow(avg_caffeine, prev_avg_caffeine)}")
+        lines.append(f"🍬 قند (میانگین): {avg_sugar}g/روز{_trend_arrow(avg_sugar, prev_avg_sugar)}")
 
     days_logged = len(set(
         _get_val(r, "timestamp")[:10] for r in logs if _get_val(r, "timestamp")
@@ -375,7 +387,7 @@ def generate_daily_summary(logs: list, medications: list, exercises: list, *, be
     return "\n".join(lines)
 
 
-def compute_correlations(logs: list) -> list[str]:
+def compute_correlations(logs: list, *, daily_beverage: dict | None = None) -> list[str]:
     """Compute Pearson correlations between lifestyle factors and outcomes."""
     if len(logs) < 7:
         return ["📉 حداقل ۷ روز داده لازمه تا بتونم الگو پیدا کنم."]
@@ -391,8 +403,7 @@ def compute_correlations(logs: list) -> list[str]:
         for field in ("back_pain", "headache", "peace_level", "sleep_quality",
                       "sleep_hours", "sitting_hours", "phone_hours",
                       "computer_hours", "screen_hours",
-                      "water_amount", "water_glasses", "tea_count",
-                      "caffeine_amount", "smoke_count", "knitting_hours"):
+                      "smoke_count", "knitting_hours"):
             val = _get_val(log, field)
             if val is not None:
                 daily[day][field].append(float(val))
@@ -400,6 +411,14 @@ def compute_correlations(logs: list) -> list[str]:
     day_avgs: dict[str, dict[str, float]] = {}
     for day, fields in daily.items():
         day_avgs[day] = {f: sum(v) / len(v) for f, v in fields.items()}
+
+    if daily_beverage:
+        for day, bev_data in daily_beverage.items():
+            if day not in day_avgs:
+                day_avgs[day] = {}
+            day_avgs[day]["bev_water_ml"] = bev_data.get("total_water_ml", 0)
+            day_avgs[day]["bev_caffeine_mg"] = bev_data.get("total_caffeine_mg", 0)
+            day_avgs[day]["bev_sugar_g"] = bev_data.get("total_sugar_g", 0)
 
     insights: list[str] = []
 
@@ -415,10 +434,9 @@ def compute_correlations(logs: list) -> list[str]:
         ("sleep_quality", "headache", "کیفیت خواب", "سردرد"),
         ("sleep_hours", "back_pain", "مدت خواب", "کمردرد"),
         ("sleep_hours", "headache", "مدت خواب", "سردرد"),
-        ("water_amount", "headache", "آب", "سردرد"),
-        ("water_glasses", "headache", "آب (دکمه)", "سردرد"),
-        ("tea_count", "headache", "چای", "سردرد"),
-        ("caffeine_amount", "headache", "کافئین", "سردرد"),
+        ("bev_water_ml", "headache", "آب", "سردرد"),
+        ("bev_caffeine_mg", "headache", "کافئین", "سردرد"),
+        ("bev_sugar_g", "headache", "قند", "سردرد"),
         ("smoke_count", "peace_level", "سیگار", "آرامش"),
         ("knitting_hours", "back_pain", "بافتنی", "کمردرد"),
         ("knitting_hours", "peace_level", "بافتنی", "آرامش"),

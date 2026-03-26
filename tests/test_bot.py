@@ -1420,7 +1420,7 @@ def test_generate_feedback_with_data(isolated_db):
     bot.handle_cigarette, bot.handle_tea, bot.handle_water,
     bot.handle_medication, bot.handle_exercise,
     bot.handle_more_menu,
-    bot.handle_report_menu, bot.handle_text,
+    bot.handle_report_menu, bot.handle_undo_button, bot.handle_text,
 ])
 def test_handlers_reject_non_admin(handler, monkeypatch):
     monkeypatch.setattr(bot, "ADMIN_IDS", [])
@@ -1448,3 +1448,121 @@ def test_main_menu_has_undo_button():
     ]
     assert "📋 بیشتر" in last_row_texts
     assert "↩️" in last_row_texts
+
+
+# ── Task 3: Undo callback during active flow ─────────────────────────────────
+
+def test_undo_callback_goes_back_one_step(monkeypatch, isolated_db):
+    """Pressing undo on step 2 should go back to step 1 and re-ask it."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {
+        "flow": "log", "step": "sleep_hours",
+        "data": {"sleep_quality": 7},
+    }
+    bot.handle_value_callback(_make_callback(42, "val_undo"))
+    assert bot.user_states[42]["step"] == "sleep_quality"
+    assert "sleep_quality" not in bot.user_states[42]["data"]
+
+
+def test_undo_callback_on_first_step_cancels_flow(monkeypatch, isolated_db):
+    """Pressing undo on the very first step should cancel the flow."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {
+        "flow": "log", "step": "sleep_quality", "data": {},
+    }
+    bot.handle_value_callback(_make_callback(42, "val_undo"))
+    assert 42 not in bot.user_states
+
+
+def test_undo_callback_removes_current_step_data(monkeypatch, isolated_db):
+    """Undo should remove prev step data and go back."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {
+        "flow": "log", "step": "back_pain",
+        "data": {"sleep_quality": 7, "sleep_hours": 8},
+    }
+    bot.handle_value_callback(_make_callback(42, "val_undo"))
+    assert bot.user_states[42]["step"] == "sleep_hours"
+    assert "sleep_hours" not in bot.user_states[42]["data"]
+    assert bot.user_states[42]["data"]["sleep_quality"] == 7
+
+
+# ── Task 4: Undo button from main menu ───────────────────────────────────────
+
+def test_undo_button_deletes_last_log(monkeypatch, isolated_db):
+    """Pressing undo from main menu (no active flow) deletes the last log."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    db.insert_log(user_id=42, smoke_count=0.5)
+    bot.user_states.pop(42, None)
+    bot.handle_undo_button(_make_message(42, "↩️"))
+    assert "پاک شد" in mock_send.call_args[0][1]
+    assert db.get_recent_logs(1, user_id=42) == []
+
+
+def test_undo_button_no_logs(monkeypatch, isolated_db):
+    """Pressing undo from main menu with no logs shows appropriate message."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    bot.user_states.pop(42, None)
+    bot.handle_undo_button(_make_message(42, "↩️"))
+    assert "نیست" in mock_send.call_args[0][1]
+
+
+# ── Task 5: Undo from _confirm and _more_or_finish special steps ─────────────
+
+def test_undo_from_confirm_goes_to_last_flow_step(monkeypatch, isolated_db):
+    """Pressing undo at the confirmation screen goes back to the last flow step."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {
+        "flow": "log", "step": "_confirm",
+        "data": {"sleep_quality": 7, "notes": "test"},
+    }
+    bot.handle_value_callback(_make_callback(42, "val_undo"))
+    last_step = bot.FLOWS["log"][-1]
+    assert bot.user_states[42]["step"] == last_step
+    assert last_step not in bot.user_states[42]["data"]
+
+
+def test_undo_from_more_or_finish_goes_to_core_last(monkeypatch, isolated_db):
+    """Pressing undo at the more-or-finish screen goes back to the last core step."""
+    monkeypatch.setattr(bot, "ADMIN_IDS", [42])
+    mock_send = MagicMock()
+    mock_answer = MagicMock()
+    mock_edit = MagicMock()
+    monkeypatch.setattr(bot.bot, "send_message", mock_send)
+    monkeypatch.setattr(bot.bot, "answer_callback_query", mock_answer)
+    monkeypatch.setattr(bot.bot, "edit_message_reply_markup", mock_edit)
+    bot.user_states[42] = {
+        "flow": "log", "step": "_more_or_finish",
+        "data": {"sleep_quality": 7, "peace_level": 5},
+    }
+    bot.handle_value_callback(_make_callback(42, "val_undo"))
+    assert bot.user_states[42]["step"] == bot.LOG_CORE_LAST_STEP
+    assert bot.LOG_CORE_LAST_STEP not in bot.user_states[42]["data"]

@@ -319,6 +319,7 @@ def _confirm_kb() -> types.InlineKeyboardMarkup:
         types.InlineKeyboardButton("✅ ثبت", callback_data="flow_confirm"),
         types.InlineKeyboardButton("❌ لغو", callback_data="flow_cancel"),
     )
+    markup.row(types.InlineKeyboardButton("↩️", callback_data="val_undo"))
     return markup
 
 
@@ -329,6 +330,7 @@ def _more_or_finish_kb() -> types.InlineKeyboardMarkup:
         types.InlineKeyboardButton("✅ همینا کافیه", callback_data="flow_finish_early"),
         types.InlineKeyboardButton("📝 ادامه بدم", callback_data="flow_continue"),
     )
+    markup.row(types.InlineKeyboardButton("↩️", callback_data="val_undo"))
     return markup
 
 
@@ -1120,6 +1122,25 @@ def handle_report_menu(message: types.Message) -> None:
     )
 
 
+@bot.message_handler(func=lambda m: m.text == "↩️")
+def handle_undo_button(message: types.Message) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    uid = message.from_user.id
+    if database.delete_last_log(uid):
+        bot.send_message(
+            message.chat.id,
+            "↩️ آخرین لاگ پاک شد.",
+            reply_markup=main_menu_keyboard(),
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "لاگی برای حذف نیست.",
+            reply_markup=main_menu_keyboard(),
+        )
+
+
 @bot.message_handler(func=lambda m: True)
 def handle_text(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
@@ -1161,6 +1182,50 @@ def handle_value_callback(call: types.CallbackQuery) -> None:
         except Exception:
             pass
         advance_flow(call.from_user.id, call.message.chat.id, None)
+        return
+
+    if raw == "undo":
+        bot.answer_callback_query(call.id, "↩️")
+        try:
+            bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+        except Exception:
+            pass
+        flow_steps = FLOWS[state["flow"]]
+        current_step = state["step"]
+
+        # Special steps: _confirm goes back to last flow step,
+        # _more_or_finish goes back to LOG_CORE_LAST_STEP
+        if current_step == "_confirm":
+            prev_step = flow_steps[-1]
+            state["data"].pop(prev_step, None)
+            state["step"] = prev_step
+            _persist_state(call.from_user.id)
+            ask_question(call.message.chat.id, prev_step, call.from_user.id)
+            return
+        if current_step == "_more_or_finish":
+            prev_step = LOG_CORE_LAST_STEP
+            state["data"].pop(prev_step, None)
+            state["step"] = prev_step
+            _persist_state(call.from_user.id)
+            ask_question(call.message.chat.id, prev_step, call.from_user.id)
+            return
+
+        try:
+            current_idx = flow_steps.index(current_step)
+        except ValueError:
+            _clear_state(call.from_user.id)
+            bot.send_message(call.message.chat.id, "❌ لغو شد.", reply_markup=main_menu_keyboard())
+            return
+        if current_idx == 0:
+            _clear_state(call.from_user.id)
+            bot.send_message(call.message.chat.id, "❌ لغو شد.", reply_markup=main_menu_keyboard())
+            return
+        prev_step = flow_steps[current_idx - 1]
+        state["data"].pop(current_step, None)
+        state["data"].pop(prev_step, None)
+        state["step"] = prev_step
+        _persist_state(call.from_user.id)
+        ask_question(call.message.chat.id, prev_step, call.from_user.id)
         return
 
     step = state.get("step", "")

@@ -818,3 +818,76 @@ def test_get_daily_beverage_totals_by_range():
     assert result["2026-03-10"]["total_caffeine_mg"] == 52  # 26 * 2
     assert "2026-03-11" in result
     assert result["2026-03-11"]["total_caffeine_mg"] == 50
+
+
+# ── migrate_legacy_beverages ──────────────────────────────────────────────────
+
+def test_migrate_beverages_tea_count():
+    db.init_db()
+    db.insert_log(user_id=1, tea_count=3)
+    db.migrate_legacy_beverages()
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    assert len(rows) == 1
+    assert rows[0]["beverage_id"] == "tea"
+    assert rows[0]["servings"] == 3
+
+
+def test_migrate_beverages_water_glasses():
+    db.init_db()
+    db.insert_log(user_id=1, water_glasses=2.5)
+    db.migrate_legacy_beverages()
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    assert len(rows) == 1
+    assert rows[0]["beverage_id"] == "water"
+    assert rows[0]["servings"] == 2.5
+
+
+def test_migrate_beverages_water_amount():
+    db.init_db()
+    db.insert_log(user_id=1, water_amount=4)
+    db.migrate_legacy_beverages()
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    assert len(rows) == 1
+    assert rows[0]["beverage_id"] == "water"
+    assert rows[0]["servings"] == 8  # 4 glasses * 2 half-glasses
+
+
+def test_migrate_beverages_caffeine_amount():
+    db.init_db()
+    db.insert_log(user_id=1, caffeine_amount=2)
+    db.migrate_legacy_beverages()
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    assert len(rows) == 1
+    assert rows[0]["beverage_id"] == "tea"
+    assert rows[0]["servings"] == 4  # 2 cups * 2 half-cups
+
+
+def test_migrate_beverages_double_count_guard_water():
+    """When both water_amount and water_glasses exist, only migrate water_amount."""
+    db.init_db()
+    db.insert_log(user_id=1, water_amount=5, water_glasses=2)
+    db.migrate_legacy_beverages()
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    water_rows = [r for r in rows if r["beverage_id"] == "water"]
+    assert len(water_rows) == 1
+    assert water_rows[0]["servings"] == 10  # from water_amount only
+
+
+def test_migrate_beverages_double_count_guard_tea():
+    """When both caffeine_amount and tea_count exist, only migrate caffeine_amount."""
+    db.init_db()
+    db.insert_log(user_id=1, caffeine_amount=3, tea_count=2)
+    db.migrate_legacy_beverages()
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    tea_rows = [r for r in rows if r["beverage_id"] == "tea"]
+    assert len(tea_rows) == 1
+    assert tea_rows[0]["servings"] == 6  # from caffeine_amount only
+
+
+def test_migrate_beverages_idempotent():
+    db.init_db()
+    db.insert_log(user_id=1, tea_count=2)
+    db.migrate_legacy_beverages()
+    db.migrate_legacy_beverages()  # run again
+    rows = db.get_today_beverages(user_id=1, date_str=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    assert len(rows) == 1  # not duplicated

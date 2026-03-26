@@ -384,6 +384,88 @@ def get_daily_beverage_totals_by_range(user_id: int, start_date: str, end_date: 
         return result
 
 
+def migrate_legacy_beverages() -> int:
+    """One-time migration of legacy tea/water/caffeine data to beverage_log.
+    Returns number of rows migrated. Idempotent — skips if data already exists."""
+    with get_connection() as conn:
+        existing = conn.execute("SELECT COUNT(*) as cnt FROM beverage_log").fetchone()["cnt"]
+        if existing > 0:
+            return 0
+
+        cur = conn.execute(
+            "SELECT id, user_id, timestamp, tea_count, water_glasses, "
+            "water_amount, caffeine_amount FROM logs "
+            "WHERE tea_count > 0 OR water_glasses > 0 OR water_amount > 0 OR caffeine_amount > 0"
+        )
+        rows = cur.fetchall()
+        count = 0
+        for row in rows:
+            ts_str = row["timestamp"]
+            date_str = ts_str[:10]
+            user_id = row["user_id"]
+            tea_count = row["tea_count"] or 0
+            water_glasses = row["water_glasses"] or 0
+            water_amount = row["water_amount"] or 0
+            caffeine_amount = row["caffeine_amount"] or 0
+
+            # Double-count guard: prefer water_amount over water_glasses
+            if water_amount > 0:
+                servings = water_amount * 2
+                bev = BEVERAGES["water"]
+                conn.execute(
+                    "INSERT INTO beverage_log "
+                    "(user_id, beverage_id, servings, water_ml, caffeine_mg, sugar_g, calories, date, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, "water", servings,
+                     bev["water_ml"] * servings, bev["caffeine_mg"] * servings,
+                     bev["sugar_g"] * servings, bev["calories"] * servings,
+                     date_str, ts_str),
+                )
+                count += 1
+            elif water_glasses > 0:
+                bev = BEVERAGES["water"]
+                conn.execute(
+                    "INSERT INTO beverage_log "
+                    "(user_id, beverage_id, servings, water_ml, caffeine_mg, sugar_g, calories, date, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, "water", water_glasses,
+                     bev["water_ml"] * water_glasses, bev["caffeine_mg"] * water_glasses,
+                     bev["sugar_g"] * water_glasses, bev["calories"] * water_glasses,
+                     date_str, ts_str),
+                )
+                count += 1
+
+            # Double-count guard: prefer caffeine_amount over tea_count
+            if caffeine_amount > 0:
+                servings = caffeine_amount * 2
+                bev = BEVERAGES["tea"]
+                conn.execute(
+                    "INSERT INTO beverage_log "
+                    "(user_id, beverage_id, servings, water_ml, caffeine_mg, sugar_g, calories, date, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, "tea", servings,
+                     bev["water_ml"] * servings, bev["caffeine_mg"] * servings,
+                     bev["sugar_g"] * servings, bev["calories"] * servings,
+                     date_str, ts_str),
+                )
+                count += 1
+            elif tea_count > 0:
+                bev = BEVERAGES["tea"]
+                conn.execute(
+                    "INSERT INTO beverage_log "
+                    "(user_id, beverage_id, servings, water_ml, caffeine_mg, sugar_g, calories, date, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, "tea", tea_count,
+                     bev["water_ml"] * tea_count, bev["caffeine_mg"] * tea_count,
+                     bev["sugar_g"] * tea_count, bev["calories"] * tea_count,
+                     date_str, ts_str),
+                )
+                count += 1
+
+        conn.commit()
+        return count
+
+
 def has_today_sleep_data(user_id: int, today_str: str) -> bool:
     """Check if sleep data was already logged today."""
     with get_connection() as conn:

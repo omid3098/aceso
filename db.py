@@ -448,6 +448,7 @@ def load_session(user_id: int) -> Optional[dict]:
                 "flow": row["flow"],
                 "step": row["step"],
                 "data": json.loads(row["data"]),
+                "updated_at": row["updated_at"],
             }
     return None
 

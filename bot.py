@@ -1495,11 +1495,29 @@ def _send_export(chat_id: int, user_id: int, text: str = "") -> None:
 # Scheduled prompts
 # ---------------------------------------------------------------------------
 
+_SESSION_EXPIRY_HOURS = 6
+
+
 def _send_reminder(uid: int, greeting: str) -> None:
     """Start the unified log flow for a user via scheduled reminder."""
     if uid in user_states:
-        logger.info("Skipping reminder for user %s — already in a flow.", uid)
-        return
+        # Expire stale sessions so reminders aren't blocked forever
+        sess = database.load_session(uid)
+        if sess and sess.get("updated_at"):
+            try:
+                updated = datetime.strptime(sess["updated_at"], "%Y-%m-%d %H:%M:%S")
+                age_hours = (datetime.now(pytz.UTC).replace(tzinfo=None) - updated).total_seconds() / 3600
+                if age_hours > _SESSION_EXPIRY_HOURS:
+                    logger.info("Clearing stale session for user %s (%.1fh old).", uid, age_hours)
+                    _clear_state(uid)
+                else:
+                    logger.info("Skipping reminder for user %s — active flow (%.1fh old).", uid, age_hours)
+                    return
+            except (ValueError, TypeError):
+                pass
+        else:
+            logger.info("Skipping reminder for user %s — already in a flow.", uid)
+            return
     try:
         first_step = FLOWS["log"][0]
         user_states[uid] = {"flow": "log", "step": first_step, "data": {}}

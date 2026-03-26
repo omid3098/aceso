@@ -333,7 +333,7 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
 
     food_items = [_get_val(log, "food_details") for log in logs if _get_val(log, "food_details")]
     if food_items:
-        lines.append(f"🍽 غذا: {food_items[-1]}")
+        lines.append(f"🍽 غذا: {' ، '.join(food_items)}")
 
     period_vals = [_get_val(log, "period_status") for log in logs if _get_val(log, "period_status") is not None]
     if period_vals:
@@ -350,7 +350,7 @@ def generate_daily_summary(logs: list, medications: list, exercises: list) -> st
 
     note_items = [_get_val(log, "notes") for log in logs if _get_val(log, "notes")]
     if note_items:
-        lines.append(f"📝 یادداشت: {note_items[-1]}")
+        lines.append(f"📝 یادداشت: {' ، '.join(note_items)}")
 
     if medications:
         med_names = [_get_val(m, "name") for m in medications]

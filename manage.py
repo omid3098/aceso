@@ -198,7 +198,7 @@ def do_systemd(console):
     if getattr(os, "getuid", lambda: -1)() != 0:
         cmd = ["systemctl", "--user", cmd_map[action], SERVICE_NAME]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.stdout:
             console.print(result.stdout)
         if result.stderr:
@@ -229,9 +229,9 @@ def do_view_logs(console):
     table = Table(show_header=True, header_style="bold")
     keys = [
         "id", "timestamp", "user_id", "back_pain", "headache", "peace_level",
-        "sleep_quality", "stress_level", "anxiety_level", "water_amount",
-        "smoke_count", "caffeine_amount", "sitting_hours", "screen_hours",
-        "food_details", "period_status", "notes",
+        "sleep_quality", "sleep_hours", "stress_level", "anxiety_level",
+        "smoke_count", "phone_hours", "computer_hours", "sitting_hours",
+        "knitting_hours", "food_details", "period_status", "notes",
     ]
     for k in keys:
         table.add_column(k, overflow="fold")
@@ -260,8 +260,10 @@ def do_git_update(console):
     if getattr(os, "getuid", lambda: -1)() == 0:
         cmd = ["systemctl", "restart", SERVICE_NAME]
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=30)
         console.print("[green]Service restarted.[/green]")
+    except subprocess.TimeoutExpired:
+        console.print("[yellow]Restart timed out (service may still be restarting).[/yellow]")
     except subprocess.CalledProcessError:
         console.print("[yellow]Restart failed (service may not be installed).[/yellow]")
 

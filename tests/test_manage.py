@@ -415,8 +415,8 @@ class _FakeRow:
     _KEYS = [
         "id", "timestamp", "user_id", "back_pain", "headache", "peace_level",
         "sleep_quality", "sleep_hours", "stress_level", "anxiety_level",
-        "water_amount", "smoke_count", "caffeine_amount", "sitting_hours",
-        "screen_hours", "food_details", "period_status", "notes",
+        "smoke_count", "phone_hours", "computer_hours", "sitting_hours",
+        "knitting_hours", "food_details", "period_status", "notes",
     ]
 
     def __init__(self, **kwargs):

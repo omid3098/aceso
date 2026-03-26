@@ -361,7 +361,10 @@ def main_menu_keyboard() -> types.ReplyKeyboardMarkup:
         types.KeyboardButton("💧 آب"),
         types.KeyboardButton("🏃 ورزش"),
     )
-    markup.row(types.KeyboardButton("📋 بیشتر"))
+    markup.row(
+        types.KeyboardButton("📋 بیشتر"),
+        types.KeyboardButton("↩️"),
+    )
     return markup
 
 

@@ -417,7 +417,9 @@ def test_main_menu_visual_hierarchy():
     assert row_texts[1] == ["📊 گزارش"]
     assert len(row_texts[2]) == 2  # درد الان, سیگار
     assert len(row_texts[3]) == 3  # چای, آب, ورزش
-    assert row_texts[4] == ["📋 بیشتر"]
+    assert "📋 بیشتر" in row_texts[4]
+    assert "↩️" in row_texts[4]
+    assert len(row_texts[4]) == 2
 
 
 def test_scale_keyboard_has_skip():
@@ -1429,3 +1431,20 @@ def test_handlers_reject_non_admin(handler, monkeypatch):
     if mock_send.called:
         text = mock_send.call_args[0][1]
         assert "دسترسی" in text or "منو" in text or True
+
+
+def test_main_menu_has_undo_button():
+    kb = bot.main_menu_keyboard()
+    all_texts = [
+        btn.text if hasattr(btn, "text") else btn.get("text", "")
+        for row in kb.keyboard
+        for btn in row
+    ]
+    assert "↩️" in all_texts
+    # Should be in the last row, next to "بیشتر"
+    last_row_texts = [
+        btn.text if hasattr(btn, "text") else btn.get("text", "")
+        for btn in kb.keyboard[-1]
+    ]
+    assert "📋 بیشتر" in last_row_texts
+    assert "↩️" in last_row_texts

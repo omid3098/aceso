@@ -193,8 +193,11 @@ STEP_UNITS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def _skip_row() -> list[types.InlineKeyboardButton]:
-    """Single skip button to append as a row to any inline keyboard."""
-    return [types.InlineKeyboardButton("⏭ رد شدن", callback_data="val_skip")]
+    """Skip and undo buttons to append as a row to any inline keyboard."""
+    return [
+        types.InlineKeyboardButton("⏭ رد شدن", callback_data="val_skip"),
+        types.InlineKeyboardButton("↩️", callback_data="val_undo"),
+    ]
 
 
 def _scale_kb(max_val: int = 10, row_size: int = 5) -> types.InlineKeyboardMarkup:

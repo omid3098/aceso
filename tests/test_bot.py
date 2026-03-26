@@ -429,6 +429,14 @@ def test_scale_keyboard_has_skip():
     assert "val_skip" in all_data
 
 
+def test_skip_row_contains_undo_button():
+    row = bot._skip_row()
+    texts = [btn.text for btn in row]
+    assert "↩️" in texts
+    callbacks = [btn.callback_data for btn in row]
+    assert "val_undo" in callbacks
+
+
 def test_count_keyboard():
     kb = bot._count_kb(20)
     assert kb is not None
